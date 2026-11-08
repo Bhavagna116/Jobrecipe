@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Modal } from '../../components/common/Modal';
 import { SectionsEditorModal } from '../../components/admin/SectionsEditorModal';
@@ -93,6 +93,19 @@ const deriveSectionCounts = (ids, questionBank) => {
   return counts;
 };
 
+// Derive per-section durations from assessment sections config (even split if none)
+const deriveSectionDurations = (asm, ids, questionBank) => {
+  const counts = deriveSectionCounts(ids, questionBank);
+  const totalQ = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
+  const totalMin = Number(asm.durationMinutes) || 30;
+  const durs = {};
+  SECTION_DEFS.forEach((sec) => {
+    const n = counts[sec.key] || 0;
+    durs[sec.key] = n > 0 ? Math.max(1, Math.round((totalMin * n) / totalQ)) : Math.max(1, Math.round(totalMin / 5));
+  });
+  return durs;
+};
+
 export const AdminAssessmentsPage = () => {
   const {
     assessments,
@@ -113,6 +126,7 @@ export const AdminAssessmentsPage = () => {
   const [previewAsm, setPreviewAsm] = useState(null);
   const [sectionsAsm, setSectionsAsm] = useState(null);
   const [editingAsmId, setEditingAsmId] = useState(null);
+  const [collegesList, setCollegesList] = useState([]);
 
   // Wizard state — a single unified assessment may mix coding + MCQ questions
   const [newAssessment, setNewAssessment] = useState({
@@ -125,6 +139,8 @@ export const AdminAssessmentsPage = () => {
     selectedQuestionIds: [],
     totalQuestions: sumSectionCounts(DEFAULT_SECTION_COUNTS),
     sectionCounts: { ...DEFAULT_SECTION_COUNTS },
+    sectionDurations: { ...DEFAULT_SECTION_COUNTS },
+    collegeIds: [],
     tags: ['Coding', 'MCQ', 'Full Assessment']
   });
 
@@ -143,6 +159,18 @@ export const AdminAssessmentsPage = () => {
   const isAllMixTrack = ['all', 'all mix', 'full length', 'all mix (combined)'].includes((newAssessment.category || '').toLowerCase());
   const isFullTrack = (newAssessment.category || '').toLowerCase() === 'full';
   const isSectionalTrack = !isCodingTrack && !isAllMixTrack && !isFullTrack;
+
+  // Fetch colleges list for college linking
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.auth.colleges();
+        if (res?.ok && Array.isArray(res.data)) {
+          setCollegesList(res.data);
+        }
+      } catch { }
+    })();
+  }, []);
 
   // Filter assessments for catalog
   const filteredAssessments = useMemo(() => {
@@ -196,6 +224,8 @@ export const AdminAssessmentsPage = () => {
       selectedQuestionIds: [],
       totalQuestions: sumSectionCounts(DEFAULT_SECTION_COUNTS),
       sectionCounts: { ...DEFAULT_SECTION_COUNTS },
+      sectionDurations: { ...DEFAULT_SECTION_COUNTS },
+      collegeIds: [],
       tags: ['Coding', 'MCQ', 'Full Assessment']
     });
     setWizardStep(1);
@@ -373,6 +403,8 @@ export const AdminAssessmentsPage = () => {
       selectedQuestionIds: sanitizedIds,
       totalQuestions: Number(asm.totalQuestions) || sanitizedIds.length || 15,
       sectionCounts: deriveSectionCounts(sanitizedIds, questionBank),
+      sectionDurations: deriveSectionDurations(asm, sanitizedIds, questionBank),
+      collegeIds: Array.isArray(asm.collegeIds) ? asm.collegeIds : [],
       tags: asm.tags || ['DSA', 'Algorithms']
     });
     setWizardStep(1);
@@ -429,7 +461,7 @@ export const AdminAssessmentsPage = () => {
       })
       .map(([, group], i) => ({
         name: group.name,
-        durationMinutes: Math.max(1, Math.round((totalSectionDur * group.questionIds.length) / totalSectionQ)),
+        durationMinutes: Math.max(1, Number(newAssessment.sectionDurations?.[group.name.toLowerCase()] ?? newAssessment.sectionDurations?.[group.name] ?? Math.round(totalSectionDur / 5))),
         displayOrder: i + 1,
         questionIds: group.questionIds,
       }));
@@ -441,6 +473,7 @@ export const AdminAssessmentsPage = () => {
         selectedQuestionIds: finalSelectedQuestionIds,
         totalQuestions: actualTotalQuestions,
         estimatedTimeMin: newAssessment.durationMinutes,
+        collegeIds: newAssessment.collegeIds,
         sections: wizardSections
       });
     } else {
@@ -449,6 +482,7 @@ export const AdminAssessmentsPage = () => {
         selectedQuestionIds: finalSelectedQuestionIds,
         totalQuestions: actualTotalQuestions,
         estimatedTimeMin: newAssessment.durationMinutes,
+        collegeIds: newAssessment.collegeIds,
         sections: wizardSections
       });
     }
@@ -569,6 +603,15 @@ export const AdminAssessmentsPage = () => {
                   <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                     {asm.status || 'Available'}
                   </span>
+                  {asm.collegeIds && asm.collegeIds.length > 0 && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                      <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple-600" />
+                        {collegesList.find(c => c.id === asm.collegeIds[0])?.name || asm.collegeIds[0]}
+                        {asm.collegeIds.length > 1 && `+${asm.collegeIds.length - 1}`}
+                      </span>
+                    </span>
+                  )}
                 </div>
 
                 <h3 className="text-base font-bold text-slate-900 line-clamp-1">{asm.title}</h3>
@@ -810,6 +853,56 @@ export const AdminAssessmentsPage = () => {
                     placeholder="Provide instructions and overview for test-takers."
                     className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none text-slate-700"
                   />
+                </div>
+
+                {/* COLLEGE LINKING */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block font-bold text-slate-700">Linked Colleges</label>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                      newAssessment.collegeIds.length > 0
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-slate-100 text-slate-400 border-slate-200'
+                    }`}>
+                      {newAssessment.collegeIds.length} selected
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {collegesList.map((col) => {
+                      const isSelected = newAssessment.collegeIds.includes(col.id);
+                      return (
+                        <button
+                          key={col.id}
+                          type="button"
+                          onClick={() => {
+                            const ids = newAssessment.collegeIds.includes(col.id)
+                              ? newAssessment.collegeIds.filter(id => id !== col.id)
+                              : [...newAssessment.collegeIds, col.id];
+                            setNewAssessment({ ...newAssessment, collegeIds: ids });
+                          }}
+                          className={`p-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-between ${
+                            isSelected
+                              ? 'bg-brand-50 border-brand-200 text-brand-700 ring-1 ring-brand-400'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="flex-shrink-0">{isSelected ? <Check className="w-3 h-3 text-brand-600" /> : <CheckSquare className="w-3 h-3 text-slate-400" />}</span>
+                            <span className="truncate">{col.name}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-medium">{col.code || ''}</span>
+                        </button>
+                      );
+                    })}
+                    {collegesList.length === 0 && (
+                      <div className="col-span-full p-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[11px] text-slate-400 text-center">
+                        No colleges available. Onboard colleges first from the Colleges page.
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-1.5 block">
+                    Select colleges that can access this assessment. Leave empty to make it available to all colleges.
+                  </span>
                 </div>
               </div>
             </div>
@@ -1058,6 +1151,41 @@ export const AdminAssessmentsPage = () => {
                   ) : (
                     <span><strong>MCQ Assessment Recommendation</strong>: Objective questions typically require 1 to 1.5 minutes per question. For {newAssessment.totalQuestions} questions, 25 to 35 minutes is standard.</span>
                   )}
+                </div>
+
+                {/* PER-SECTION DURATION */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-2">Per-Section Time Limits (Minutes)</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {SECTION_DEFS.map(sec => {
+                      const count = newAssessment.sectionCounts?.[sec.key] ?? 0;
+                      return (
+                        <div key={sec.key} className="p-2 bg-slate-50 rounded-xl border border-slate-200">
+                          <label className="block text-[10px] font-bold text-slate-600 mb-1">{sec.label}</label>
+                          <div className="flex items-end gap-1">
+                            <input
+                              type="number"
+                              min="1"
+                              max="120"
+                              value={newAssessment.sectionDurations?.[sec.key] ?? Math.max(1, Math.round(newAssessment.durationMinutes / 5))}
+                              onChange={(e) => setNewAssessment({ ...newAssessment, sectionDurations: { ...newAssessment.sectionDurations, [sec.key]: Number(e.target.value) || 1 } })}
+                              className="w-20 px-2 py-1.5 bg-white rounded-lg border border-slate-200 outline-none font-bold text-slate-900 text-sm"
+                            />
+                            <span className="text-[10px] text-slate-400">min</span>
+                          </div>
+                          {count > 0 && (
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">{count} question{count !== 1 ? 's' : ''}</span>
+                          )}
+                          {count === 0 && (
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">Not used</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Set individual time limits per section. The total assessment duration is the sum of all section times.
+                  </span>
                 </div>
               </div>
             </div>

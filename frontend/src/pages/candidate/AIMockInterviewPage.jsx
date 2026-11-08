@@ -11,8 +11,7 @@ import {
 import { getFaceLandmarker, classifyFrame } from '../../services/proctoringService';
 import { apiUrl } from '../../services/api';
 import { getActiveAssessments, checkAssessmentCompleted } from '../../utils/interviewLock';
-import { heygenAvatarService } from '../../services/heygenAvatarService';
-import { HeyGenStreamingAvatar } from '../../components/interview/HeyGenStreamingAvatar';
+import { AnimatedAvatar } from '../../components/interview/AnimatedAvatar';
 import {
   getInterviewAudioForText,
   findInterviewAudioKey
@@ -55,7 +54,8 @@ import {
   ShieldAlert,
   Clock,
   Maximize,
-  Minimize
+  Minimize,
+  Info
 } from 'lucide-react';
 
 const PRESET_ROLES = [
@@ -155,6 +155,15 @@ export const AIMockInterviewPage = () => {
   const navigate = useNavigate();
   const { navigateTo, currentUser, role, adminUser, candidateSubmissions, assessments, isAssessmentCompleted, addToast, startAssessment, isInterviewUnlocked } = useApp();
 
+  // The interviewer is always the opposite gender of the candidate:
+  // male candidate -> female interviewer, female candidate -> male interviewer.
+  const candidateGender = String(currentUser?.gender || '').toLowerCase();
+  const interviewerVoice = candidateGender === 'male'
+    ? 'female'
+    : candidateGender === 'female'
+      ? 'male'
+      : 'male';
+
   // Helper to open candidate analysis report
   const handleOpenCandidateAnalysis = () => {
     try {
@@ -195,7 +204,7 @@ export const AIMockInterviewPage = () => {
 
   // 2. Role and Resume ATS Data
   const [targetRole, setTargetRole] = useState(() => {
-    return localStorage.getItem('rsj_selected_role') || 'Data Scientist';
+    return localStorage.getItem('rsj_selected_role') || 'Software Engineer';
   });
 
   const [uploadedFileName, setUploadedFileName] = useState(() => {
@@ -209,6 +218,10 @@ export const AIMockInterviewPage = () => {
   const [scanProgress, setScanProgress] = useState(0);
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pastedText, setPastedText] = useState('');
+
+  // Resume confirmation modal states
+  const [showResumeConfirmModal, setShowResumeConfirmModal] = useState(false);
+  const [resumeConfirmChoice, setResumeConfirmChoice] = useState(null); // 'yes' | 'no'
 
   // Resume analysis state initialized only if a resume was actually uploaded
   const [analysisResult, setAnalysisResult] = useState(() => {
@@ -250,12 +263,6 @@ export const AIMockInterviewPage = () => {
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionId, setSessionId] = useState(null);
-  const [heyGenModePreferred] = useState(() => {
-    try {
-      const saved = localStorage.getItem('rsj_avatar_mode');
-      return saved ? saved !== 'animated_only' : true;
-    } catch { return true; }
-  });
   const [isProcessing, setIsProcessing] = useState(false);
   const [isReportReady, setIsReportReady] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -319,7 +326,7 @@ export const AIMockInterviewPage = () => {
   // speaking; null = they haven't started yet). Auto-advances on time-up or silence.
   const [answerSecondsLeft, setAnswerSecondsLeft] = useState(null);
   const [answerAutoNotice, setAnswerAutoNotice] = useState('');
-  const MAX_ANSWER_SECONDS = 28; // hard cap on a single spoken answer (Sarvam STT rejects clips >= 30s)
+  const MAX_ANSWER_SECONDS = 29; // hard cap on a single spoken answer (Sarvam STT rejects clips >= 30s)
   const SILENCE_SECONDS = 4;     // advance once the candidate stops talking this long
 
   // Pre-load and cache browser SpeechSynthesis voices
@@ -377,7 +384,6 @@ export const AIMockInterviewPage = () => {
           if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
           if (telemetryIntervalRef.current) clearInterval(telemetryIntervalRef.current);
           stopAudioNoiseMonitoring();
-          heygenAvatarService.stopSession().catch(() => {});
           if (isRecording && recognitionRef.current) {
             recognitionRef.current.stop();
             setIsRecording(false);
@@ -478,11 +484,26 @@ export const AIMockInterviewPage = () => {
   const recognitionRef = useRef(null);
   // STT engine: Sarvam Saaras is primary (best for Indian accents / Hinglish);
   // the browser Web Speech API is the fallback.
-  const sttEngineRef = useRef('none'); // 'none' | 'sarvam' | 'browser'
+  const sttEngineRef = useRef('none'); // 'none' | 'sarvam' | 'sarvam_stream' | 'browser'
   const sarvamRecorderRef = useRef(null);
-  const sarvamStreamRef = useRef(null);
+  // One persistent microphone stream for the whole interview. Opening the mic
+  // once (instead of per answer) removes the getUserMedia wake-up pause between
+  // questions.
+  const micStreamRef = useRef(null);
+  const sarvamStartTokenRef = useRef(0);
   const sarvamFailureCountRef = useRef(0);
   const sarvamFlushResolveRef = useRef(null);
+  // Streaming STT refs
+  const sarvamWsRef = useRef(null);
+  const sarvamAudioContextRef = useRef(null);
+  const sarvamProcessorRef = useRef(null);
+  const sarvamSilentGainRef = useRef(null);
+  const sarvamMediaStreamRef = useRef(null);
+  const sarvamListeningRef = useRef(false);
+  const sarvamWsReadyRef = useRef(false);
+  const sarvamPrewarmPromiseRef = useRef(null);
+  const sarvamPrewarmedRef = useRef(false);
+  const sarvamEpochRef = useRef(0);
   const timerIntervalRef = useRef(null);
   const telemetryIntervalRef = useRef(null);
   const qStartTimeRef = useRef(Date.now());
@@ -798,15 +819,7 @@ export const AIMockInterviewPage = () => {
     }
   };
 
-  const handleProceedToRoom = () => {
-    if (!hasUploadedResume) {
-      if (typeof addToast === 'function') {
-        addToast('Please upload your resume first to calibrate your interview.', 'warning');
-      }
-      const input = document.getElementById('resume-file-input');
-      if (input) input.click();
-      return;
-    }
+  const startInterviewRoom = () => {
     // Transition from Setup to Live Interview Stage
     setIsInterviewCompleted(false);
     try {
@@ -824,6 +837,42 @@ export const AIMockInterviewPage = () => {
     }
   };
 
+  const handleProceedToRoom = () => {
+    // Resume is optional — if they already uploaded one, go straight in.
+    if (hasUploadedResume) {
+      startInterviewRoom();
+      return;
+    }
+    // Otherwise first ask whether they have a resume.
+    setResumeConfirmChoice(null);
+    setShowResumeConfirmModal(true);
+  };
+
+  const handleResumeConfirmYes = () => {
+    setResumeConfirmChoice('yes');
+    // Show file upload dialog
+    const input = document.getElementById('resume-file-input');
+    if (input) input.click();
+    setShowResumeConfirmModal(false);
+  };
+
+  const handleResumeConfirmNo = () => {
+    setResumeConfirmChoice('no');
+    // Show confirmation that they want to proceed without resume
+    // The modal will show the "are you sure" message
+  };
+
+  const handleResumeConfirmProceedWithout = () => {
+    // User confirmed they want to proceed without resume
+    setShowResumeConfirmModal(false);
+    startInterviewRoom();
+  };
+
+  const handleResumeConfirmCancel = () => {
+    setResumeConfirmChoice(null);
+    setShowResumeConfirmModal(false);
+  };
+
   // ==========================================
   // CAMERA & AUDIO HANDLERS
   // ==========================================
@@ -834,7 +883,12 @@ export const AIMockInterviewPage = () => {
       }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-        audio: true,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
       });
       mediaStreamRef.current = stream;
       setCameraActive(true);
@@ -1002,13 +1056,19 @@ export const AIMockInterviewPage = () => {
         utterance.volume = isAudioMuted ? 0 : 1.0;
 
         const voices = (window.speechSynthesis.getVoices && window.speechSynthesis.getVoices()) || [];
-        // Priority 1: Natural / Online high definition voices
-        // Priority 2: Indian English (Ravi / Heera / Prabhat) or crisp US English (David / Mark / Google US English)
-        const preferred = voices.find(
-          (v) => (v.name.includes('Natural') || v.name.includes('Online')) && v.lang.startsWith('en')
-        ) || voices.find(
-          (v) => (v.name.includes('Ravi') || v.name.includes('Heera') || v.name.includes('Prabhat') || v.name.includes('David') || v.name.includes('Google US English') || v.name.includes('George') || v.name.includes('Christopher') || v.name.includes('Male')) && v.lang.startsWith('en')
-        ) || voices.find((v) => v.lang.startsWith('en-IN')) || voices.find((v) => v.lang.startsWith('en-US')) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
+        // Match the interviewer's gender first, then fall back to natural /
+        // Indian-English / US-English voices.
+        const femaleHints = ['female', 'heera', 'samantha', 'zira', 'neerja', 'veena', 'raveena', 'kajal', 'tanya', 'swara'];
+        const maleHints = ['male', 'ravi', 'prabhat', 'david', 'george', 'christopher', 'mark', 'daniel', 'alex', 'rishi'];
+        const hints = interviewerVoice === 'female' ? femaleHints : maleHints;
+        const enVoices = voices.filter((v) => v.lang && v.lang.startsWith('en'));
+        const genderMatch = enVoices.find((v) => hints.some((h) => v.name.toLowerCase().includes(h)));
+        const preferred = genderMatch
+          || enVoices.find((v) => (v.name.includes('Natural') || v.name.includes('Online')))
+          || enVoices.find((v) => v.lang.startsWith('en-IN'))
+          || enVoices.find((v) => v.lang.startsWith('en-US'))
+          || enVoices[0]
+          || voices[0];
 
         if (preferred) utterance.voice = preferred;
 
@@ -1023,7 +1083,7 @@ export const AIMockInterviewPage = () => {
           if (safetyTimeout) clearTimeout(safetyTimeout);
           setIsAISpeaking(false);
           window.__agyActiveUtterance = null;
-          setTimeout(() => { onFinished?.(); }, 250);
+          setTimeout(() => { onFinished?.(); }, 50);
         };
 
         utterance.onstart = () => {
@@ -1119,12 +1179,17 @@ export const AIMockInterviewPage = () => {
     }
   });
 
-  // ── Interviewer Voice Engine (ElevenLabs or Native Browser TTS) ──
+  // ── Interviewer Voice Engine (Sarvam / browser native TTS) ──
   const speakAI = async (text, onFinished) => {
     if (!text) { onFinished?.(); return; }
 
     const cleanText = String(text).replace(/[*_#`]/g, '').trim();
     setCurrentSpokenSubtitle(cleanText);
+
+    // STT is batch: one MediaRecorder clip per answer, transcribed on submit.
+    // Keep the microphone stream warm while the interviewer talks so the
+    // recorder can start the instant the question ends (no activation pause).
+    primeMicrophone();
 
     const words = cleanText.split(/\s+/).filter(Boolean);
     const wordCount = words.length;
@@ -1132,7 +1197,7 @@ export const AIMockInterviewPage = () => {
 
     if (isAudioMuted) {
       setIsAISpeaking(true);
-      setTimeout(() => { setIsAISpeaking(false); onFinished?.(); }, 1000);
+      setTimeout(() => { setIsAISpeaking(false); onFinished?.(); }, 50);
       return;
     }
 
@@ -1151,24 +1216,10 @@ export const AIMockInterviewPage = () => {
 
     // 0. Pre-rendered static clip (fixed questions + transition lines). Zero
     // latency / zero cost; any unmatched text falls through to live TTS below.
-    const preRenderedClip = getInterviewAudioForText(cleanText);
+    const preRenderedClip = getInterviewAudioForText(cleanText, interviewerVoice);
     if (preRenderedClip) {
       const played = await playPreRenderedClip(preRenderedClip, () => onFinished?.());
       if (played) return;
-    }
-
-    // 1. HeyGen Interactive Avatar native speech (primary when a live stream is connected)
-    if (heyGenModePreferred && (heygenAvatarService.status === 'connected' || heygenAvatarService.status === 'speaking')) {
-      setIsAISpeaking(true);
-      try {
-        await heygenAvatarService.speak(cleanText, () => {
-          setIsAISpeaking(false);
-          onFinished?.();
-        });
-        return;
-      } catch (err) {
-        console.warn('HeyGen avatar speech notice, falling back to TTS:', err);
-      }
     }
 
     const ttsEndpoint = apiUrl('/api/tts/speak');
@@ -1184,7 +1235,7 @@ export const AIMockInterviewPage = () => {
         method: 'POST',
         signal: abortCtrl.signal,
         headers: { ...ttsAuthHeaders(), 'Accept': 'audio/mpeg' },
-        body: JSON.stringify({ text: cleanText }),
+        body: JSON.stringify({ text: cleanText, voiceGender: interviewerVoice }),
       });
 
       if (!response.ok) {
@@ -1209,7 +1260,7 @@ export const AIMockInterviewPage = () => {
         ended = true;
         setIsAISpeaking(false);
         elevenLabsSourceRef.current = null;
-        setTimeout(() => { onFinished?.(); }, 300);
+        setTimeout(() => { onFinished?.(); }, 50);
       };
 
       source.onended = finish;
@@ -1327,27 +1378,36 @@ export const AIMockInterviewPage = () => {
   };
 
   const stopSarvamRecording = () => {
+    // Invalidate any start that is still awaiting the microphone.
+    sarvamStartTokenRef.current += 1;
+    // Stop batch recording
     const recorder = sarvamRecorderRef.current;
     sarvamRecorderRef.current = null;
     if (recorder && recorder.state !== 'inactive') {
       try { recorder.stop(); } catch { }
     }
-    if (sarvamStreamRef.current) {
-      sarvamStreamRef.current.getTracks().forEach((t) => t.stop());
-      sarvamStreamRef.current = null;
-    }
+    // The microphone stream is intentionally NOT stopped here: it stays warm for
+    // the next answer so the recorder can start instantly after each question.
+    // Stop streaming recording
+    stopSarvamStreamingRecording();
+
     // Release any pending flush so a submit can never hang waiting on audio.
     if (sarvamFlushResolveRef.current) {
       const resolveFlush = sarvamFlushResolveRef.current;
       sarvamFlushResolveRef.current = null;
       resolveFlush();
     }
-    if (sttEngineRef.current === 'sarvam') setIsRecording(false);
+    if (sttEngineRef.current === 'sarvam' || sttEngineRef.current === 'sarvam_stream') setIsRecording(false);
   };
 
   // Stop the active Sarvam recording and resolve once its transcript has been
   // processed, so submitting an answer never drops the candidate's last words.
   const flushSarvamRecording = () => {
+    // Streaming: force Sarvam to finalize its buffer and wait for the final transcript.
+    if (sttEngineRef.current === 'sarvam_stream') {
+      return flushSarvamStreamingRecording();
+    }
+
     const recorder = sarvamRecorderRef.current;
     if (sttEngineRef.current !== 'sarvam' || !recorder || recorder.state === 'inactive') {
       return Promise.resolve();
@@ -1363,6 +1423,49 @@ export const AIMockInterviewPage = () => {
     });
   };
 
+  // Return a live, audio-only stream for the recorder. Resolution order:
+  //   1. the live camera audio track (already open, zero wake-up cost),
+  //   2. the persistent mic stream kept alive for the whole interview,
+  //   3. a one-time getUserMedia (then kept alive for later answers).
+  const ensureAudioStream = async () => {
+    const cameraTracks = mediaStreamRef.current
+      ? mediaStreamRef.current.getAudioTracks().filter((t) => t.readyState === 'live')
+      : [];
+    if (cameraTracks.length > 0) return new MediaStream(cameraTracks);
+
+    const micTracks = micStreamRef.current
+      ? micStreamRef.current.getAudioTracks().filter((t) => t.readyState === 'live')
+      : [];
+    if (micTracks.length > 0) return new MediaStream(micTracks);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Microphone is not available in this browser.');
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+    });
+    micStreamRef.current = stream;
+    return stream;
+  };
+
+  // Warm the microphone while the interviewer is speaking. Opening the stream
+  // ahead of time is what makes the mic activate instantly when the question
+  // ends — it never records while the interviewer is talking.
+  const primeMicrophone = () => {
+    if (micStreamRef.current?.getAudioTracks().some((t) => t.readyState === 'live')) return;
+    const cameraTracks = mediaStreamRef.current?.getAudioTracks?.() || [];
+    if (cameraTracks.some((t) => t.readyState === 'live')) return;
+    ensureAudioStream().catch(() => { });
+  };
+
+  const releaseMicrophone = () => {
+    sarvamStartTokenRef.current += 1;
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((t) => t.stop());
+      micStreamRef.current = null;
+    }
+  };
+
   const startSarvamRecording = async () => {
     if (sttEngineRef.current === 'sarvam' && sarvamRecorderRef.current) return;
     const MediaRecorder = window.MediaRecorder;
@@ -1375,22 +1478,16 @@ export const AIMockInterviewPage = () => {
     sttEngineRef.current = 'sarvam';
     sarvamFailureCountRef.current = 0;
     beginAnswerWindow();
+    const startToken = ++sarvamStartTokenRef.current;
     try {
-      // Prefer the camera stream's live audio track (avoids a second prompt);
-      // otherwise request a dedicated microphone stream. Recording is done on an
+      // Reuse the already-open camera/mic track. This is the fast path: no
+      // getUserMedia round-trip between questions. Recording is done on an
       // audio-only MediaStream: handing a video+audio stream to an audio codec
       // makes MediaRecorder.start() throw in Chromium.
-      const cameraStream = mediaStreamRef.current;
-      const liveAudioTracks = cameraStream
-        ? cameraStream.getAudioTracks().filter((t) => t.readyState === 'live')
-        : [];
-
-      let audioStream;
-      if (liveAudioTracks.length > 0) {
-        audioStream = new MediaStream(liveAudioTracks);
-      } else {
-        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        sarvamStreamRef.current = audioStream;
+      const audioStream = await ensureAudioStream();
+      if (startToken !== sarvamStartTokenRef.current || sttEngineRef.current !== 'sarvam') {
+        // The mic was paused/stopped while we were acquiring audio.
+        return;
       }
 
       const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
@@ -1437,6 +1534,7 @@ export const AIMockInterviewPage = () => {
       setMicError('');
       startAnswerWindow();
     } catch (err) {
+      if (startToken !== sarvamStartTokenRef.current) return;
       console.warn('Microphone unavailable for speech recognition:', err.message);
       setMicError(describeMediaError(err));
       setIsRecording(false);
@@ -1445,6 +1543,328 @@ export const AIMockInterviewPage = () => {
       sttEngineRef.current = 'none';
       startBrowserSpeechRecognition();
     }
+  };
+
+  // ==========================================
+  // SARVAM STREAMING STT (Real-time WebSocket)
+  // ==========================================
+  // Build the mic -> AudioWorklet -> WebSocket pipeline ahead of time. The
+  // handshake (browser -> our proxy -> Sarvam) is the slow part, so it runs
+  // while the interviewer is still speaking. Audio is only forwarded once
+  // sarvamListeningRef is true, so the interviewer's voice is never transcribed.
+  const prewarmSarvamStreaming = () => {
+    if (sarvamPrewarmedRef.current && sarvamWsRef.current?.readyState === WebSocket.OPEN) {
+      return Promise.resolve(true);
+    }
+    if (sarvamPrewarmPromiseRef.current) return sarvamPrewarmPromiseRef.current;
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass || !navigator.mediaDevices?.getUserMedia) {
+      return Promise.resolve(false);
+    }
+
+    const epoch = sarvamEpochRef.current;
+
+    const start = async () => {
+      let processor = null;
+      let silentGain = null;
+      let audioContext = null;
+      let audioStream = null;
+      let ws = null;
+
+      const teardown = () => {
+        if (ws && sarvamWsRef.current === ws) sarvamWsRef.current = null;
+        if (processor && sarvamProcessorRef.current === processor) {
+          try { processor.disconnect(); } catch { }
+          sarvamProcessorRef.current = null;
+        }
+        if (silentGain && sarvamSilentGainRef.current === silentGain) {
+          try { silentGain.disconnect(); } catch { }
+          sarvamSilentGainRef.current = null;
+        }
+        if (audioContext && sarvamAudioContextRef.current === audioContext) {
+          try { audioContext.close(); } catch { }
+          sarvamAudioContextRef.current = null;
+        }
+        if (audioStream && sarvamMediaStreamRef.current === audioStream) {
+          try { audioStream.getTracks().forEach((t) => t.stop()); } catch { }
+          sarvamMediaStreamRef.current = null;
+        }
+        try { ws?.close(); } catch { }
+      };
+
+      try {
+        // Reuse the camera stream's live audio track when possible.
+        const cameraStream = mediaStreamRef.current;
+        const liveAudioTracks = cameraStream
+          ? cameraStream.getAudioTracks().filter((t) => t.readyState === 'live')
+          : [];
+
+        if (liveAudioTracks.length > 0) {
+          audioStream = new MediaStream(liveAudioTracks);
+        } else {
+          audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              sampleRate: 16000,
+              channelCount: 1,
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+          sarvamMediaStreamRef.current = audioStream;
+        }
+
+        if (epoch !== sarvamEpochRef.current) { teardown(); return false; }
+
+        audioContext = new AudioContextClass({ sampleRate: 16000 });
+        sarvamAudioContextRef.current = audioContext;
+        if (audioContext.state === 'suspended') await audioContext.resume();
+
+        const source = audioContext.createMediaStreamSource(audioStream);
+
+        try {
+          await audioContext.audioWorklet.addModule('/audio-worklet/pcm-processor.js?v=3');
+          processor = new AudioWorkletNode(audioContext, 'pcm-processor');
+          processor.port.onmessage = (e) => {
+            if (!sarvamListeningRef.current) return;
+            const socket = sarvamWsRef.current;
+            if (socket?.readyState === WebSocket.OPEN && e.data?.pcmData) {
+              socket.send(e.data.pcmData);
+            }
+          };
+        } catch {
+          // Fallback to the deprecated ScriptProcessorNode.
+          processor = audioContext.createScriptProcessor(1024, 1, 1);
+          processor.onaudioprocess = (e) => {
+            if (!sarvamListeningRef.current) return;
+            const socket = sarvamWsRef.current;
+            if (socket?.readyState !== WebSocket.OPEN) return;
+            const inputData = e.inputBuffer.getChannelData(0);
+            const pcmData = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+              const s = Math.max(-1, Math.min(1, inputData[i]));
+              pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            socket.send(pcmData.buffer);
+          };
+        }
+
+        // Silent sink: never monitor the mic back to the speakers.
+        silentGain = audioContext.createGain();
+        silentGain.gain.value = 0;
+        sarvamSilentGainRef.current = silentGain;
+        source.connect(processor);
+        processor.connect(silentGain);
+        silentGain.connect(audioContext.destination);
+
+        const token = localStorage.getItem('rsj_token') || localStorage.getItem('token');
+        const wsUrl = `${apiUrl('/api/stt/stream').replace(/^http/, 'ws')}?token=${encodeURIComponent(token || '')}&language_code=${encodeURIComponent(sttLang || 'en-IN')}&sample_rate=16000`;
+
+        ws = new WebSocket(wsUrl);
+        sarvamWsRef.current = ws;
+        sarvamProcessorRef.current = processor;
+        ws.binaryType = 'arraybuffer';
+
+        // Resolve once our proxy reports that Sarvam itself is connected.
+        let settled = false;
+        let resolveReady;
+        const readyPromise = new Promise((resolve) => { resolveReady = resolve; });
+        const markReady = (value) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(readyTimer);
+          resolveReady(value);
+        };
+        const readyTimer = setTimeout(() => markReady(false), 6000);
+
+        ws.onopen = () => {
+          console.log('[Sarvam Streaming STT] Proxy socket open');
+        };
+
+        ws.onmessage = (event) => {
+          let data;
+          try { data = JSON.parse(event.data); } catch { return; }
+
+          if (data.type === 'ready') {
+            sarvamWsReadyRef.current = true;
+            markReady(true);
+            return;
+          }
+
+          // Accept both the proxy's normalized shape and Sarvam's raw shape.
+          const transcript = typeof data.transcript === 'string'
+            ? data.transcript
+            : (typeof data.data?.transcript === 'string' ? data.data.transcript : '');
+          if (transcript.trim()) {
+            appendTranscript(transcript);
+            const resolveFlush = sarvamFlushResolveRef.current;
+            sarvamFlushResolveRef.current = null;
+            resolveFlush?.();
+          }
+
+          if (data.type === 'error') {
+            const message = data.message || data.data?.error || data.data?.message || 'Sarvam stream error';
+            console.warn('[Sarvam Streaming STT] Error:', message);
+            markReady(false);
+            noteSarvamFailure(0);
+          }
+        };
+
+        ws.onerror = (err) => {
+          console.error('[Sarvam Streaming STT] WebSocket error:', err);
+          sarvamWsReadyRef.current = false;
+          markReady(false);
+        };
+
+        ws.onclose = (event) => {
+          console.log('[Sarvam Streaming STT] Closed:', event.code, event.reason);
+          sarvamWsReadyRef.current = false;
+          sarvamPrewarmedRef.current = false;
+          markReady(false);
+
+          // Unexpected close while the candidate is answering: fall back to
+          // the batch recorder so their answer is still captured.
+          if (sttEngineRef.current === 'sarvam_stream' && sarvamListeningRef.current && !autoSubmitFiredRef.current) {
+            sarvamListeningRef.current = false;
+            sttEngineRef.current = 'none';
+            setIsRecording(false);
+            console.warn('[Sarvam Streaming STT] Lost connection — falling back to batch STT');
+            startSarvamRecording();
+          }
+        };
+
+        const ready = await readyPromise;
+        if (epoch !== sarvamEpochRef.current || sarvamWsRef.current !== ws) {
+          teardown();
+          return false;
+        }
+        if (!ready) {
+          teardown();
+          return false;
+        }
+
+        sarvamPrewarmedRef.current = true;
+        return true;
+      } catch (err) {
+        console.warn('[Sarvam Streaming STT] Prewarm failed:', err?.message || err);
+        teardown();
+        return false;
+      } finally {
+        sarvamPrewarmPromiseRef.current = null;
+      }
+    };
+
+    sarvamPrewarmPromiseRef.current = start();
+    return sarvamPrewarmPromiseRef.current;
+  };
+
+  const startSarvamStreamingRecording = async () => {
+    if (sttEngineRef.current === 'sarvam_stream' && sarvamListeningRef.current) return;
+
+    sttEngineRef.current = 'sarvam_stream';
+    sarvamFailureCountRef.current = 0;
+
+    // If the socket was prewarmed while the interviewer spoke, this resolves
+    // immediately and audio starts flowing on the next frame.
+    const ready = await prewarmSarvamStreaming();
+    if (sttEngineRef.current !== 'sarvam_stream') return;
+    if (!ready) {
+      sttEngineRef.current = 'none';
+      console.warn('Sarvam streaming unavailable — falling back to batch STT');
+      startSarvamRecording();
+      return;
+    }
+
+    sarvamListeningRef.current = true;
+    startAnswerWindow();
+    setIsRecording(true);
+    setMicError('');
+  };
+
+  const stopSarvamStreamingRecording = () => {
+    // Invalidate any in-flight prewarm before tearing down.
+    sarvamEpochRef.current += 1;
+    sarvamListeningRef.current = false;
+    sarvamWsReadyRef.current = false;
+    sarvamPrewarmedRef.current = false;
+    sarvamPrewarmPromiseRef.current = null;
+
+    // Mark the engine stopped before closing so the socket's onclose handler
+    // does not mistake an intentional stop for a dropped connection.
+    if (sttEngineRef.current === 'sarvam_stream') {
+      sttEngineRef.current = 'none';
+      setIsRecording(false);
+    }
+
+    const ws = sarvamWsRef.current;
+    sarvamWsRef.current = null;
+
+    if (ws) {
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          // Ask Sarvam to finalize anything still buffered.
+          try { ws.send(JSON.stringify({ type: 'flush' })); } catch { }
+        }
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          // Give the flush frame a moment to leave before closing.
+          setTimeout(() => { try { ws.close(1000, 'Client stopped recording'); } catch { } }, 200);
+        }
+      } catch { }
+    }
+
+    // Clean up audio graph
+    const processor = sarvamProcessorRef.current;
+    sarvamProcessorRef.current = null;
+    if (processor) {
+      try { processor.disconnect(); } catch { }
+    }
+
+    const silentGain = sarvamSilentGainRef.current;
+    sarvamSilentGainRef.current = null;
+    if (silentGain) {
+      try { silentGain.disconnect(); } catch { }
+    }
+
+    const audioContext = sarvamAudioContextRef.current;
+    sarvamAudioContextRef.current = null;
+    if (audioContext && audioContext.state !== 'closed') {
+      try { audioContext.close(); } catch { }
+    }
+
+    const mediaStream = sarvamMediaStreamRef.current;
+    sarvamMediaStreamRef.current = null;
+    if (mediaStream) {
+      mediaStream.getTracks().forEach((t) => t.stop());
+    }
+
+    // Release any pending flush so submitting an answer can never hang.
+    if (sarvamFlushResolveRef.current) {
+      const resolveFlush = sarvamFlushResolveRef.current;
+      sarvamFlushResolveRef.current = null;
+      resolveFlush();
+    }
+  };
+
+  // Force Sarvam to finalize buffered audio, then resolve when the final
+  // transcript arrives (or after a short timeout so submission never hangs).
+  const flushSarvamStreamingRecording = () => {
+    const ws = sarvamWsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.resolve();
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (sarvamFlushResolveRef.current === finish) sarvamFlushResolveRef.current = null;
+        clearTimeout(timer);
+        resolve();
+      };
+      sarvamFlushResolveRef.current = finish;
+      const timer = setTimeout(finish, 1500);
+      try { ws.send(JSON.stringify({ type: 'flush' })); } catch { finish(); }
+    });
   };
 
   const startBrowserSpeechRecognition = () => {
@@ -1550,14 +1970,20 @@ export const AIMockInterviewPage = () => {
     }
   };
 
-  // Engine selection: Sarvam Saaras (primary) with browser Web Speech fallback.
+  // Engine selection: Sarvam Batch STT (primary), Browser Web Speech (fallback).
+  // A single answer is recorded as one clip (max 28s, under Sarvam's 30s limit)
+  // and transcribed in one request when the candidate submits.
+  // The streaming WebSocket path is intentionally disabled.
   const startSpeechRecognition = () => {
     const MediaRecorder = window.MediaRecorder;
     const canRecordAudio = Boolean(MediaRecorder && navigator.mediaDevices?.getUserMedia);
+
     if (canRecordAudio) {
+      // Primary: Sarvam Batch STT (MediaRecorder + POST /api/stt/transcribe)
       startSarvamRecording();
       return;
     }
+    // Fallback: Browser Web Speech API
     startBrowserSpeechRecognition();
   };
 
@@ -1567,6 +1993,7 @@ export const AIMockInterviewPage = () => {
       recognitionRef.current = null;
     }
     stopSarvamRecording();
+    stopSarvamStreamingRecording();
     sttEngineRef.current = 'none';
     setIsRecording(false);
   };
@@ -1585,12 +2012,18 @@ export const AIMockInterviewPage = () => {
     }
   };
 
-  // Manual Mic toggle for candidate
+  // Manual Mic toggle for candidate. The mic is only controllable while it is
+  // the candidate's turn: starting it during interviewer speech would record the
+  // interviewer's own voice.
   const handleRecordVoice = () => {
+    const state = agentStateRef.current;
+    if (state === 'SPEAKING' || state === 'AI_RESPONSE' || state === 'PROCESSING') return;
+
     if (isRecording) {
       stopSpeechRecognition();
     } else {
       setMicError('');
+      primeMicrophone();
       startSpeechRecognition();
     }
   };
@@ -1601,9 +2034,9 @@ export const AIMockInterviewPage = () => {
     if (telemetryIntervalRef.current) clearInterval(telemetryIntervalRef.current);
     stopAudioNoiseMonitoring();
     stopSpeechRecognition();
-    heygenAvatarService.stopSession().catch(() => {});
     setSessionActive(false);
     stopCamera();
+    releaseMicrophone();
     setIsProcessing(true);
 
     const answeredCount = updatedAnswers.filter(a => a.score > 0).length;
@@ -2069,6 +2502,7 @@ export const AIMockInterviewPage = () => {
       if (telemetryIntervalRef.current) clearInterval(telemetryIntervalRef.current);
       stopAudioNoiseMonitoring();
       if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      releaseMicrophone();
       if (window.speechSynthesis) window.speechSynthesis.cancel();
       // Cancel any in-progress ElevenLabs audio
       if (elevenLabsAbortRef.current) { try { elevenLabsAbortRef.current.abort(); } catch { } }
@@ -2794,7 +3228,7 @@ export const AIMockInterviewPage = () => {
                     onClick={handleProceedToRoom}
                     className="w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm sm:text-base shadow-md shadow-brand-600/20 transition-all hover:scale-[1.005] cursor-pointer font-sans"
                   >
-                    <span>Proceed to Live AI Interview Room -></span>
+                    <span>Proceed to Live AI Interview Room</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                   {isInterviewCompleted && (
@@ -2817,34 +3251,124 @@ export const AIMockInterviewPage = () => {
               </div>
             ) : (
               <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
-                <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80 flex items-start gap-3.5 text-amber-900">
-                  <div className="w-9 h-9 rounded-xl bg-white border border-amber-200 flex items-center justify-center text-amber-600 flex-shrink-0 shadow-2xs mt-0.5">
+                <div className="p-4 rounded-2xl bg-sky-50/60 border border-sky-200/80 flex items-start gap-3.5 text-sky-900">
+                  <div className="w-9 h-9 rounded-xl bg-white border border-sky-200 flex items-center justify-center text-sky-600 flex-shrink-0 shadow-2xs mt-0.5">
                     <FileText className="w-4 h-4" />
                   </div>
                   <div className="text-xs">
-                    <strong className="text-slate-900 block font-bold text-sm mb-0.5">Resume Required to Calibrate Skills</strong>
+                    <strong className="text-slate-900 block font-bold text-sm mb-0.5">Resume is optional</strong>
                     <p className="text-slate-600 font-sans leading-relaxed">
-                      Upload your resume above. Once uploaded, we will extract skills present in your resume, calculate your ATS match benchmark, and identify missed skills to learn according to resume for <strong className="text-slate-900 font-bold">{targetRole || 'your target role'}</strong>.
+                      You can proceed without a resume. Adding one gives better results &mdash; tailored questions, ATS match scoring, and skill gap analysis for <strong className="text-slate-900 font-bold">{targetRole || 'your target role'}</strong>.
                     </p>
                   </div>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    const input = document.getElementById('resume-file-input');
-                    if (input) input.click();
-                  }}
+                  onClick={handleProceedToRoom}
                   className="w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm sm:text-base shadow-md shadow-brand-600/20 transition-all hover:scale-[1.005] cursor-pointer font-sans"
                 >
-                  <Upload className="w-4 h-4" />
-                  <span>Upload Resume to Calibrate & Proceed -></span>
+                  <span>Proceed to Live AI Interview Room</span>
+                  <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
             )}
 
           </div>
         </div>
+
+      {/* Resume Confirmation Modal - inside main container */}
+      {showResumeConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            {resumeConfirmChoice === null ? (
+              // Initial question: Do you have a resume?
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-brand-50 border border-brand-200 flex items-center justify-center text-brand-600 flex-shrink-0">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Do you have a resume?</h3>
+                    <p className="text-sm text-slate-500 mt-1">Upload your resume to get tailored questions and ATS benchmarking.</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-center gap-3 w-full">
+                  <button
+                    type="button"
+                    onClick={handleResumeConfirmYes}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm shadow-md shadow-brand-600/20 transition-all cursor-pointer font-sans"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Yes, Upload Resume</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResumeConfirmNo}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-bold text-sm transition-all cursor-pointer font-sans"
+                  >
+                    <X className="w-4 h-4" />
+                    <span>No, Continue Without</span>
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResumeConfirmCancel}
+                  className="mt-4 w-full text-sm text-slate-500 hover:text-slate-700 font-medium cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : resumeConfirmChoice === 'no' ? (
+              // Confirmation: Are you sure you want to proceed without resume?
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 flex-shrink-0">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Proceed Without Resume?</h3>
+                    <p className="text-sm text-slate-500 mt-1">
+                      With a resume, you&apos;ll get better results &mdash; tailored questions, ATS match scoring, 
+                      and skill gap analysis for <strong className="text-slate-900">{targetRole}</strong>.
+                    </p>
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 mb-4">
+                  <p className="text-xs text-amber-800 font-medium flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5" />
+                    You can still take the interview, but questions will be generic for your target role.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-3 w-full">
+                  <button
+                    type="button"
+                    onClick={handleResumeConfirmProceedWithout}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm shadow-md shadow-brand-600/20 transition-all cursor-pointer font-sans"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                    <span>Yes, Start Interview</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResumeConfirmCancel}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-bold text-sm transition-all cursor-pointer font-sans"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Go Back</span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              // Uploading state - just show loading
+              <div className="text-center py-4">
+                <RefreshCw className="w-8 h-8 text-brand-600 animate-spin mx-auto mb-3" />
+                <p className="text-slate-600 font-medium">Opening file picker...</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       </div>
     );
@@ -2853,6 +3377,9 @@ export const AIMockInterviewPage = () => {
   // ==========================================
   // VIEW 3: LIVE INTERVIEW STAGE (PICTURE 2)
   // ==========================================
+  // The mic is controllable only on the candidate's turn.
+  const micLocked = agentState === 'SPEAKING' || agentState === 'AI_RESPONSE' || agentState === 'PROCESSING';
+
   return (
     <div className="relative h-[100dvh] max-h-[100dvh] w-full overflow-hidden bg-[#F8FAFC] text-slate-800 p-2 sm:p-3 flex flex-col justify-between select-none">
 
@@ -3011,71 +3538,57 @@ export const AIMockInterviewPage = () => {
         {/* Google Meet-style stage: two participant tiles */}
         <div className="flex-1 min-h-0 grid grid-cols-1 grid-rows-2 md:grid-cols-2 md:grid-rows-1 gap-2.5 sm:gap-3">
 
-          {/* Tile 1 — AI Interviewer (Meet-style, camera OFF: no video) */}
-          <div className="relative rounded-2xl overflow-hidden bg-gradient-to-b from-slate-800 to-slate-900 border border-slate-700/60 shadow-card h-full min-h-0 flex items-center justify-center">
-            {/* HeyGen session kept alive for interviewer voice only (never shown as video) */}
-            <HeyGenStreamingAvatar
-              visual="none"
+          {/* Tile 1 — AI Interviewer (Animated Avatar) */}
+          <div className={`relative rounded-2xl overflow-hidden bg-gradient-to-b from-slate-800 to-slate-900 shadow-xl h-full min-h-0 flex items-center justify-center transition-all duration-300 ${
+            isAISpeaking 
+              ? 'ring-2 ring-cyan-400/80 shadow-[0_0_24px_rgba(6,182,212,0.4)] animate-pulse-subtle' 
+              : agentState === 'LISTENING'
+                ? 'ring-2 ring-emerald-400/60 shadow-[0_0_16px_rgba(16,185,129,0.3)]'
+                : agentState === 'PROCESSING'
+                  ? 'ring-2 ring-amber-400/60 shadow-[0_0_16px_rgba(245,158,11,0.3)]'
+                  : 'border border-slate-700/60'
+          }`}>
+            {/* Active Speaker Glow Ring - appears behind the avatar when speaking */}
+            {isAISpeaking && (
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-cyan-400/20 via-transparent to-cyan-400/20 animate-ping pointer-events-none" />
+            )}
+            {agentState === 'LISTENING' && !isAISpeaking && (
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-emerald-400/15 via-transparent to-emerald-400/15 animate-pulse pointer-events-none" />
+            )}
+            {agentState === 'PROCESSING' && (
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-amber-400/15 via-transparent to-amber-400/15 animate-pulse pointer-events-none" />
+            )}
+            
+            <AnimatedAvatar
               isSpeaking={isAISpeaking}
               agentState={agentState}
-              sessionId={sessionId}
-              isLiveStreamPreferred={heyGenModePreferred}
-              onSpeechEnd={() => {
-                setIsAISpeaking(false);
-              }}
+              isAudioMuted={isAudioMuted}
+              onToggleMute={() => setIsAudioMuted(!isAudioMuted)}
+              className="w-full h-full"
             />
 
-            {isAISpeaking && (
-              <div className="absolute inset-0 bg-radial from-cyan-500/10 via-transparent to-transparent pointer-events-none animate-pulse" />
-            )}
-
-            {/* Centered round avatar (no video feed) */}
-            <div className="relative z-10 flex flex-col items-center justify-center gap-3">
-              <div className="relative">
-                <div className={`w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-slate-800 ring-4 transition-all duration-300 ${isAISpeaking
-                  ? 'ring-cyan-400/80'
+            {/* Active Speaker Badge - top center */}
+            {(isAISpeaking || agentState === 'LISTENING' || agentState === 'PROCESSING') && (
+              <div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full backdrop-blur-md text-[10px] font-mono font-bold shadow-lg ${
+                isAISpeaking 
+                  ? 'bg-cyan-500/20 border border-cyan-400/50 text-cyan-300 animate-pulse' 
                   : agentState === 'LISTENING'
-                    ? 'ring-emerald-400/70'
-                    : agentState === 'PROCESSING'
-                      ? 'ring-amber-400/70'
-                      : 'ring-white/10'
-                  }`}>
-                  <span className="w-full h-full flex items-center justify-center bg-slate-800 text-slate-200 font-bold text-2xl sm:text-3xl select-none tracking-wide">
-                    AI
-                  </span>
-                </div>
-                {isAISpeaking && (
-                  <span className="absolute inset-0 rounded-full ring-4 ring-cyan-400/40 animate-ping pointer-events-none" />
-                )}
+                    ? 'bg-emerald-500/20 border border-emerald-400/50 text-emerald-300'
+                    : 'bg-amber-500/20 border border-amber-400/50 text-amber-300'
+              }">
+                {isAISpeaking && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />}
+                {agentState === 'LISTENING' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                {agentState === 'PROCESSING' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-spin" />}
+                <span>
+                  {isAISpeaking ? 'Speaking' : agentState === 'LISTENING' ? 'Listening' : 'Evaluating'}
+                </span>
               </div>
-              <span className={`text-[11px] font-mono font-bold px-2.5 py-1 rounded-full border backdrop-blur-md ${isAISpeaking
-                ? 'bg-cyan-950/70 border-cyan-500/40 text-cyan-300'
-                : agentState === 'LISTENING'
-                  ? 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300'
-                  : agentState === 'PROCESSING'
-                    ? 'bg-amber-950/70 border-amber-500/40 text-amber-300'
-                    : 'bg-slate-900/70 border-slate-700/60 text-slate-300'
-                }`}>
-                {isAISpeaking
-                  ? 'Speaking…'
-                  : agentState === 'LISTENING'
-                    ? 'Listening…'
-                    : agentState === 'PROCESSING'
-                      ? 'Evaluating…'
-                      : 'Camera off'}
-              </span>
-            </div>
-
-            {/* Camera-off badge (top-right) */}
-            <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-black/50 backdrop-blur-md border border-white/10">
-              <VideoOff className="w-3.5 h-3.5 text-slate-300" />
-              <span className="text-[10px] font-mono text-slate-200">Camera off</span>
-            </div>
+            )}
 
             {/* Name pill (bottom-left, Meet style) */}
             <div className="absolute bottom-3 left-3 z-20 flex items-center gap-2 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md border border-white/10">
-              <span className={`w-2.5 h-2.5 rounded-full ${isAISpeaking
-                ? 'bg-cyan-400 animate-pulse'
+              <div className={`w-2.5 h-2.5 rounded-full ${isAISpeaking
+                ? 'bg-cyan-400 animate-ping'
                 : agentState === 'LISTENING'
                   ? 'bg-emerald-400 animate-pulse'
                   : agentState === 'PROCESSING'
@@ -3089,7 +3602,16 @@ export const AIMockInterviewPage = () => {
           </div>
 
           {/* Tile 2 — You (Meet-style, webcam always on) */}
-          <div className="relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-700/60 shadow-card h-full min-h-0">
+          <div className={`relative rounded-2xl overflow-hidden bg-slate-950 shadow-xl h-full min-h-0 transition-all duration-300 ${
+            isRecording && agentState !== 'SPEAKING' 
+              ? 'ring-2 ring-emerald-400/80 shadow-[0_0_20px_rgba(16,185,129,0.4)]' 
+              : 'border border-slate-700/60'
+          }`}>
+            {/* Active Speaker Glow for user tile when recording */}
+            {(isRecording && agentState !== 'SPEAKING') && (
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-emerald-400/15 via-transparent to-emerald-400/15 animate-ping pointer-events-none" />
+            )}
+
             <video
               ref={videoRef}
               autoPlay
@@ -3158,7 +3680,7 @@ export const AIMockInterviewPage = () => {
 
             {/* Name pill (bottom-left, Meet style) */}
             <div className="absolute bottom-3 left-3 z-20 flex items-center gap-2 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md border border-white/10">
-              <Mic className={`w-3.5 h-3.5 ${isRecording ? 'text-emerald-400' : 'text-slate-300'}`} />
+              <Mic className={`w-3.5 h-3.5 ${isRecording ? 'text-emerald-400 animate-pulse' : 'text-slate-300'}`} />
               <span className="text-xs font-bold text-white font-sans">You</span>
               {warningCount > 0 && (
                 <span className={`text-[10px] font-mono font-black ${warningCount >= 3 ? 'text-rose-300' : 'text-amber-300'}`}>
@@ -3167,9 +3689,10 @@ export const AIMockInterviewPage = () => {
               )}
             </div>
 
-            {isRecording && (
-              <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md border border-emerald-500/40">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            {/* Active speaker indicator for user (bottom-right when recording) */}
+            {(isRecording && agentState !== 'SPEAKING') && (
+              <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md border border-emerald-500/40 animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
                 <span className="text-[10px] font-mono font-bold text-emerald-300">Live</span>
               </div>
             )}
@@ -3202,7 +3725,7 @@ export const AIMockInterviewPage = () => {
               className="flex items-center justify-center gap-2 px-7 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-cyan-600 hover:from-brand-700 hover:to-cyan-700 text-white font-bold text-sm font-sans shadow-md shadow-brand-500/20 transition-all hover:scale-[1.01] cursor-pointer"
             >
               <Video className="w-4 h-4" />
-              <span>Start Interview Session for {targetRole}</span>
+              <span>Start Interview Session</span>
             </button>
           ) : (
             <div className="flex flex-col items-center gap-2.5 w-full max-w-3xl sm:max-w-4xl">
@@ -3318,14 +3841,17 @@ export const AIMockInterviewPage = () => {
                 <button
                   type="button"
                   onClick={handleRecordVoice}
-                  className={`flex items-center justify-center gap-1.5 flex-1 sm:flex-none px-4 py-2 sm:py-1.5 rounded-lg text-xs font-bold font-sans transition-all border cursor-pointer ${isRecording
-                    ? 'bg-rose-50 border-rose-300 text-rose-700 animate-pulse shadow-2xs'
-                    : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs'
+                  disabled={micLocked && !isRecording}
+                  className={`flex items-center justify-center gap-1.5 flex-1 sm:flex-none px-4 py-2 sm:py-1.5 rounded-lg text-xs font-bold font-sans transition-all border ${micLocked && !isRecording
+                    ? 'bg-slate-50 border-slate-200 text-slate-400 opacity-70 cursor-not-allowed'
+                    : isRecording
+                      ? 'bg-rose-50 border-rose-300 text-rose-700 animate-pulse shadow-2xs cursor-pointer'
+                      : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs cursor-pointer'
                     }`}
-                  title="Toggle Microphone"
+                  title={micLocked && !isRecording ? 'Microphone activates when the interviewer finishes the question' : 'Toggle Microphone'}
                 >
-                  <Mic className="w-3.5 h-3.5 text-brand-600" />
-                  <span>{isRecording ? 'Pause Mic' : 'Start Mic'}</span>
+                  <Mic className={`w-3.5 h-3.5 ${micLocked && !isRecording ? 'text-slate-400' : 'text-brand-600'}`} />
+                  <span>{isRecording ? 'Pause Mic' : micLocked ? 'Mic Off' : 'Start Mic'}</span>
                 </button>
 
                 <button

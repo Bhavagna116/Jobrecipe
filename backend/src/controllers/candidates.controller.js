@@ -2,6 +2,7 @@ import { pool, getDbStatus } from '../db/pool.js';
 import { fallbackCandidates } from '../mockFallback.js';
 import { resolveCollegeScope } from '../middleware/collegeScope.js';
 import { serverError } from '../utils/httpError.js';
+import { cacheDelete } from '../utils/shortCache.js';
 
 let candidatesCache = null;
 let lastCandidatesFetch = 0;
@@ -190,6 +191,10 @@ export const updateCandidate = async (req, res) => {
       `UPDATE users SET name=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2`,
       [name, req.params.id]
     );
+    // The /me payload embeds profile fields, so drop the cached copy.
+    cacheDelete('me', String(req.params.id));
+    if (result.rows[0]?.id) cacheDelete('me', String(result.rows[0].id));
+    if (result.rows[0]?.user_id) cacheDelete('me', String(result.rows[0].user_id));
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
     serverError(res, err, 'candidates.controller');

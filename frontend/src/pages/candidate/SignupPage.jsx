@@ -95,6 +95,8 @@ export const SignupPage = () => {
     country: 'India',
     state: '',
     city: '',
+    gender: '', // New: Gender dropdown
+    rollNumber: '', // New: Roll number (optional)
     // Step 2: Academic Details
     tenthSchool: '',
     tenthMarks: '',
@@ -279,6 +281,7 @@ export const SignupPage = () => {
     if (!formData.specialization.trim()) newErrors.specialization = 'Specialization is required';
     if (!formData.state.trim()) newErrors.state = 'State is required';
     if (!formData.city.trim()) newErrors.city = 'City is required';
+    if (!formData.gender.trim()) newErrors.gender = 'Gender is required';
 
     setErrors(newErrors);
 
@@ -374,6 +377,8 @@ export const SignupPage = () => {
         graduationYear: parseInt(formData.graduationYear, 10) || 2026,
         graduation_year: parseInt(formData.graduationYear, 10) || 2026,
         experienceLevel: 'Fresher',
+        gender: formData.gender,
+        rollNumber: formData.rollNumber.trim(),
         tenthSchool: formData.tenthSchool.trim(),
         tenth_school: formData.tenthSchool.trim(),
         tenthMarks: parseFloat(formData.tenthMarks) || null,
@@ -801,6 +806,55 @@ export const SignupPage = () => {
                 </div>
               </div>
 
+              {/* Row 5: Gender (Required) & Roll Number (Optional) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* 10. Gender */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    10. Gender <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <select
+                      name="gender"
+                      value={formData.gender}
+                      onChange={handleChange}
+                      className={`w-full pl-10 pr-4 py-2.5 bg-white border text-sm text-slate-900 rounded-xl outline-none transition-all appearance-none cursor-pointer ${
+                        errors.gender ? 'border-rose-500 ring-2 ring-rose-500/20' : 'border-slate-300 focus:border-brand-600 focus:ring-2 focus:ring-brand-500/20'
+                      }`}
+                    >
+                      <option value="">Select Gender</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  {errors.gender && <p className="mt-1 text-xs text-rose-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.gender}</p>}
+                </div>
+
+                {/* 11. Roll Number (Optional) */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    11. College Roll Number <span className="text-slate-400">(Optional)</span>
+                  </label>
+                  <div className="relative">
+                    <Hash className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      name="rollNumber"
+                      value={formData.rollNumber}
+                      onChange={handleChange}
+                      placeholder="e.g. 21CS1045"
+                      className={`w-full pl-10 pr-4 py-2.5 bg-white border text-sm text-slate-900 placeholder-slate-400 rounded-xl outline-none transition-all ${
+                        errors.rollNumber ? 'border-rose-500 ring-2 ring-rose-500/20' : 'border-slate-300 focus:border-brand-600 focus:ring-2 focus:ring-brand-500/20'
+                      }`}
+                    />
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">Your engineering college roll number (optional)</p>
+                  {errors.rollNumber && <p className="mt-1 text-xs text-rose-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.rollNumber}</p>}
+                </div>
+              </div>
+
               {/* Action Button: Proceed to Step 2 (Password completely removed from Step 1) */}
               <div className="pt-4">
                 <button
@@ -840,7 +894,7 @@ export const SignupPage = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      10. Class 10th School / Board Name <span className="text-rose-500">*</span>
+                      12. Class 10th School / Board Name <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -857,7 +911,7 @@ export const SignupPage = () => {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      11. 10th Marks / % <span className="text-rose-500">*</span>
+                      13. 10th Marks / % <span className="text-rose-500">*</span>
                     </label>
                     <div className="relative">
                       <input
@@ -890,7 +944,7 @@ export const SignupPage = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      12. 12th / Diploma College Name <span className="text-rose-500">*</span>
+                      14. 12th / Diploma College Name <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -907,7 +961,7 @@ export const SignupPage = () => {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      13. 12th Marks / % <span className="text-rose-500">*</span>
+                      15. 12th Marks / % <span className="text-rose-500">*</span>
                     </label>
                     <div className="relative">
                       <input
@@ -941,7 +995,7 @@ export const SignupPage = () => {
                   {/* Degree */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      14. Degree / Course <span className="text-rose-500">*</span>
+                      16. Degree / Course <span className="text-rose-500">*</span>
                     </label>
                     <select
                       name="degree"
@@ -958,7 +1012,7 @@ export const SignupPage = () => {
                   {/* Graduation Year */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      15. Passing Year <span className="text-rose-500">*</span>
+                      17. Passing Year <span className="text-rose-500">*</span>
                     </label>
                     <select
                       name="graduationYear"
@@ -975,7 +1029,7 @@ export const SignupPage = () => {
                   {/* CGPA / SGPA */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      16. Current CGPA / % <span className="text-rose-500">*</span>
+                      18. Current CGPA / % <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="number"
@@ -996,7 +1050,7 @@ export const SignupPage = () => {
                   {/* Backlogs */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      17. Total Backlogs <span className="text-rose-500">*</span>
+                      19. Total Backlogs <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="number"

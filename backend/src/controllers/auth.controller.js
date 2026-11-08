@@ -18,6 +18,7 @@ import {
 } from "../mockFallback.js";
 
 import { JWT_SECRET, REFRESH_SECRET, isMasterPassword } from "../config/secrets.js";
+import { cacheGet, cacheSet } from "../utils/shortCache.js";
 
 const BCRYPT_SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS || "10", 10);
 const ACCESS_TOKEN_TTL  = "24h";   // Access token valid for 1 day
@@ -110,6 +111,7 @@ export const register = async (req, res) => {
     name, fullName, email, mobile, phoneNo, college, collegeName, collegeId,
     degree, branch, specialization, country = "India",
     state, city, graduationYear = 2026, experienceLevel = "Fresher",
+    gender, rollNumber,
     tenthSchool, tenthMarks, twelfthCollege, twelfthDiplomaMarks,
     cgpa, sgpa, graduationPercentage, backlogs,
     password
@@ -132,6 +134,8 @@ export const register = async (req, res) => {
   const candidateGraduationYear = parseInt(graduationYear || req.body.graduation_year) || 2026;
   const candidateCgpa         = parseFloat(cgpa ?? sgpa ?? graduationPercentage ?? req.body.graduation_percentage) || null;
   const candidateBacklogs     = parseInt(backlogs ?? req.body.backlogs, 10) || 0;
+  const candidateGender       = (gender || "").trim();
+  const candidateRollNumber   = (rollNumber || req.body.roll_number || "").trim();
 
   if (!candidateName)
     return res.status(400).json({ success: false, error: "Full name is required." });
@@ -153,6 +157,8 @@ export const register = async (req, res) => {
     return res.status(400).json({ success: false, error: "City is required." });
   if (!candidateCollegeId)
     return res.status(400).json({ success: false, error: "Please select your college from the list." });
+  if (!candidateGender)
+    return res.status(400).json({ success: false, error: "Gender is required." });
 
   // Password strength validation
   const pwErr = validatePassword(password);
@@ -194,6 +200,8 @@ export const register = async (req, res) => {
       graduationYear: candidateGraduationYear,
       graduation_year: candidateGraduationYear,
       experienceLevel: experienceLevel || 'Fresher',
+      gender: candidateGender,
+      rollNumber: candidateRollNumber,
       tenthSchool: candidateTenthSchool,
       tenth_school: candidateTenthSchool,
       tenthMarks: candidateTenthMarks,
@@ -241,8 +249,8 @@ export const register = async (req, res) => {
     );
     await client.query(
       `INSERT INTO candidate_profiles
-        (id, user_id, name, email, mobile, college, degree, branch, specialization, country, state, city, graduation_year, experience_level, tenth_school, tenth_marks, twelfth_college, twelfth_diploma_marks, graduation_percentage, cgpa, backlogs, college_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+        (id, user_id, name, email, mobile, college, degree, branch, specialization, country, state, city, graduation_year, experience_level, gender, roll_number, tenth_school, tenth_marks, twelfth_college, twelfth_diploma_marks, graduation_percentage, cgpa, backlogs, college_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        ON CONFLICT (id) DO UPDATE SET
          college = EXCLUDED.college,
          college_id = EXCLUDED.college_id,
@@ -256,7 +264,7 @@ export const register = async (req, res) => {
       [id, id, candidateName, candidateEmail, cleanMobile, candidateCollege,
        degree || "B.Tech", candidateBranch, candidateSpecialization,
        candidateCountry, candidateState, candidateCity,
-       candidateGraduationYear, experienceLevel,
+       candidateGraduationYear, experienceLevel, candidateGender, candidateRollNumber,
        candidateTenthSchool, candidateTenthMarks,
        candidateTwelfthCollege, candidateTwelfthMarks,
        candidateCgpa, candidateCgpa, candidateBacklogs, resolvedCollegeId]
@@ -287,6 +295,8 @@ export const register = async (req, res) => {
       state: candidateState, city: candidateCity,
       graduationYear: candidateGraduationYear, graduation_year: candidateGraduationYear,
       experienceLevel,
+      gender: candidateGender,
+      rollNumber: candidateRollNumber,
       tenthSchool: candidateTenthSchool, tenth_school: candidateTenthSchool,
       tenthMarks: candidateTenthMarks, tenth_marks: candidateTenthMarks,
       twelfthCollege: candidateTwelfthCollege, twelfth_college: candidateTwelfthCollege,
@@ -313,6 +323,8 @@ export const register = async (req, res) => {
       state: candidateState, city: candidateCity,
       graduationYear: candidateGraduationYear, graduation_year: candidateGraduationYear,
       experienceLevel: experienceLevel || 'Fresher',
+      gender: candidateGender,
+      rollNumber: candidateRollNumber,
       tenthSchool: candidateTenthSchool, tenth_school: candidateTenthSchool,
       tenthMarks: candidateTenthMarks, tenth_marks: candidateTenthMarks,
       twelfthCollege: candidateTwelfthCollege, twelfth_college: candidateTwelfthCollege,
@@ -412,6 +424,7 @@ export const loginCandidate = async (req, res) => {
     const userRes = await pool.query(
       `SELECT u.id, u.email, u.password_hash, u.name, u.role,
               cp.mobile, cp.college, cp.degree, cp.branch, cp.specialization, cp.country, cp.state, cp.city, cp.graduation_year,
+              cp.gender, cp.roll_number,
               COALESCE(cp.experience_level, c.experience_level, 'Fresher') as experience_level,
               COALESCE(s.readiness_status, c.readiness_status, 'In Progress') as readiness_status,
               COALESCE(s.real_score, c.job_readiness_score, 0) as job_readiness_score,
@@ -474,6 +487,8 @@ export const loginCandidate = async (req, res) => {
       college: user.college, degree: user.degree, branch: user.branch,
       specialization: user.specialization, country: user.country,
       state: user.state, city: user.city, graduationYear: user.graduation_year,
+      gender: user.gender || null,
+      rollNumber: user.roll_number || null,
       experienceLevel: user.experience_level,
       jobReadinessScore: finalReadinessScore,
       job_readiness_score: finalReadinessScore,
@@ -696,6 +711,15 @@ export const refreshToken = async (req, res) => {
 };
 
 // GET /api/auth/me
+// The payload is fetched on every app load and costs one remote-DB round-trip.
+// Cache it briefly; profile / submission writes invalidate the entry explicitly.
+const ME_CACHE_TTL_MS = Math.max(0, parseInt(process.env.ME_CACHE_TTL_MS || '10000', 10));
+
+const sendMe = (res, cacheKey, payload) => {
+  if (ME_CACHE_TTL_MS > 0) cacheSet('me', cacheKey, payload, ME_CACHE_TTL_MS);
+  return res.json(payload);
+};
+
 export const getMe = async (req, res) => {
   if (!pool || !getDbStatus()) {
     const offlineRole = req.user?.role;
@@ -712,20 +736,26 @@ export const getMe = async (req, res) => {
   }
 
   try {
-    // Resolve the authenticating account's role first. Admin / college-admin
-    // accounts must never be misidentified as candidates just because their id
-    // exists in the users table.
-    const roleRes = await pool.query("SELECT id, name, email, role FROM users WHERE id=$1", [req.user.id]);
-    const account = roleRes.rows[0];
-    if ((account && (account.role === 'admin' || account.role === 'college_admin')) ||
-        req.user?.role === 'admin' || req.user?.role === 'college_admin') {
+    const meCacheKey = String(req.user.id);
+    if (ME_CACHE_TTL_MS > 0) {
+      const cached = cacheGet('me', meCacheKey);
+      if (cached) return res.json(cached);
+    }
+
+    // Trust the role carried by the signed JWT for the common paths. Admin /
+    // college-admin accounts must never be misidentified as candidates just
+    // because their id also exists in the users table.
+    const jwtRole = req.user?.role;
+    if (jwtRole === 'admin' || jwtRole === 'college_admin') {
+      const roleRes = await pool.query("SELECT id, name, email, role FROM users WHERE id=$1", [req.user.id]);
+      const account = roleRes.rows[0];
       const adminAccount = account || {
         id: req.user.id,
         name: req.user.name || 'Administrator',
         email: req.user.email,
         role: req.user.role,
       };
-      return res.json({ success: true, user: adminAccount, admin: adminAccount, role: adminAccount.role });
+      return sendMe(res, meCacheKey, { success: true, user: adminAccount, admin: adminAccount, role: adminAccount.role });
     }
 
     const candRes = await pool.query(`
@@ -735,6 +765,7 @@ export const getMe = async (req, res) => {
         COALESCE(cp.email, u.email) as email,
         cp.mobile, cp.college, cp.degree, cp.branch, cp.specialization,
         cp.country, cp.state, cp.city, cp.graduation_year,
+        cp.gender, cp.roll_number,
         COALESCE(cp.experience_level, c.experience_level, 'Fresher') as experience_level,
         COALESCE(cp.tenth_marks, c.tenth_marks) as tenth_marks,
         COALESCE(cp.twelfth_diploma_marks, c.twelfth_diploma_marks) as twelfth_diploma_marks,
@@ -770,8 +801,19 @@ export const getMe = async (req, res) => {
       LIMIT 1
     `, [req.user.id]);
 
+    // Legacy fallback: a JWT without a role (or an old candidate token whose
+    // account is actually an admin) still needs the users row.
+    if (candRes.rows.length === 0) {
+      const roleRes = await pool.query("SELECT id, name, email, role FROM users WHERE id=$1", [req.user.id]);
+      const account = roleRes.rows[0];
+      if (account && (account.role === 'admin' || account.role === 'college_admin')) {
+        return sendMe(res, meCacheKey, { success: true, user: account, admin: account, role: account.role });
+      }
+    }
+
     if (candRes.rows.length > 0) {
       const row = candRes.rows[0];
+      row.rollNumber           = row.roll_number || null;
       row.tenthMarks           = row.tenth_marks;
       row.twelfthDiplomaMarks  = row.twelfth_diploma_marks;
       row.graduationPercentage = row.graduation_percentage;
@@ -783,12 +825,12 @@ export const getMe = async (req, res) => {
       row.technicalScore       = row.technical_score || 0;
       row.verbalScore          = row.verbal_score || 0;
       row.codingScore          = row.coding_score || 0;
-      return res.json({ success: true, candidate: row, role: "candidate" });
+      return sendMe(res, meCacheKey, { success: true, candidate: row, role: "candidate" });
     }
 
     const userRes = await pool.query("SELECT id, name, email, role FROM users WHERE id=$1", [req.user.id]);
     const uObj = userRes.rows[0];
-    res.json({ success: true, user: uObj, candidate: uObj, role: uObj?.role });
+    sendMe(res, meCacheKey, { success: true, user: uObj, candidate: uObj, role: uObj?.role });
   } catch (err) {
     const cand = findUserByEmail(req.user?.email) || findCandidateById(req.user?.id);
     if (cand) {

@@ -3,6 +3,7 @@ process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '128';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -14,8 +15,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.resolve(__dirname, '../../frontend/dist');
 
-import { testConnection, closePool } from './db/pool.js';
+import { testConnection, closePool, warmPool, startPoolKeepAlive, dbQueryContext, getDbQueryStats, getDbStatus } from './db/pool.js';
+import prisma from './db/prisma.js';
 import { initSchema } from './db/schema.js';
+import { warmQuestionsCache } from './controllers/questions.controller.js';
+import { warmAssessmentsCache } from './controllers/assessments.controller.js';
 
 import { apiLimiter, loginLimiter, registerLimiter, submissionLimiter } from './middleware/rateLimiter.js';
 
@@ -31,6 +35,7 @@ import interviewRoutes from './routes/interview.routes.js';
 import attemptsRoutes from './routes/attempts.routes.js';
 import ttsRoutes from './routes/tts.routes.js';
 import sttRoutes from './routes/stt.routes.js';
+import { initSttStreamServer } from './routes/stt-stream.routes.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '5000', 10);
@@ -104,6 +109,19 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser()); // Required for reading HttpOnly refresh token cookies
 
+// ─── Performance: gzip/brotli response compression ───────────────────────────
+// Large JSON payloads (the question bank is ~390 KB uncompressed) shrink by
+// roughly 85–90%, which matters a lot on slow/mobile links. Server-sent event
+// streams must never be compressed/buffered, so they are explicitly excluded.
+app.use(compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    const type = res.getHeader('Content-Type');
+    if (typeof type === 'string' && type.includes('text/event-stream')) return false;
+    return compression.filter(req, res);
+  },
+}));
+
 app.use(['/api', '/api/*'], apiLimiter);
 app.use(['/api/auth/login', '/auth/login'], loginLimiter);
 app.use(['/api/auth/admin/login', '/auth/admin/login'], loginLimiter);
@@ -112,9 +130,12 @@ app.use(['/api/submissions', '/submissions'], submissionLimiter);
 
 // ─── Performance: Request Duration Logger & Timeout Protection ───────────────
 const REQUEST_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS || '25000', 10);
+const SLOW_REQ_MS = parseInt(process.env.SLOW_REQ_MS || '500', 10);
 
 app.use((req, res, next) => {
   const start = Date.now();
+  // Per-request DB accounting; pool.js adds each query's duration to this store.
+  const dbCtx = { count: 0, totalMs: 0 };
 
   // Set response timeout header / handler
   const timer = setTimeout(() => {
@@ -126,22 +147,44 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     clearTimeout(timer);
     const duration = Date.now() - start;
-    if (duration > 1000) {
-      console.warn(`[SLOW REQ] ${req.method} ${req.originalUrl} - ${res.statusCode} in ${duration}ms`);
+    if (duration > SLOW_REQ_MS) {
+      const dbMs = Math.round(dbCtx.totalMs);
+      const dbPart = dbCtx.count > 0 ? ` (db ${dbMs}ms across ${dbCtx.count} queries)` : ' (no db queries)';
+      console.warn(`[SLOW REQ] ${req.method} ${req.originalUrl} - ${res.statusCode} in ${duration}ms${dbPart}`);
     }
   });
 
-  next();
+  dbQueryContext.run(dbCtx, next);
 });
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
-const healthHandler = async (_req, res) => {
-  const dbOk = await testConnection().catch(() => false);
+// Health checks are polled frequently (load balancer, uptime monitors). A real
+// DB round-trip on every hit is wasteful and made /health slow; check at most
+// once per HEALTH_CACHE_MS and answer immediately from the cached result.
+const HEALTH_CACHE_MS = parseInt(process.env.HEALTH_CACHE_MS || '10000', 10);
+let healthCheckedAt = 0;
+let healthDbOk = null;
+
+const refreshDbHealth = () => {
+  const now = Date.now();
+  if (now - healthCheckedAt < HEALTH_CACHE_MS) return;
+  healthCheckedAt = now;
+  testConnection(1, 3000)
+    .then((ok) => { healthDbOk = ok; })
+    .catch(() => { healthDbOk = false; });
+};
+
+const healthHandler = (_req, res) => {
+  refreshDbHealth();
+  const dbOk = healthDbOk === null ? getDbStatus() : healthDbOk;
+  const stats = getDbQueryStats();
   res.json({
     status: 'online',
     service: 'ReadySetJob API',
     version: '1.0.0',
     database: dbOk ? 'connected' : 'offline',
+    dbQueries: stats.queries,
+    dbSlowQueries: stats.slowQueries,
     timestamp: new Date().toISOString(),
     pid: process.pid,
   });
@@ -194,11 +237,43 @@ const server = app.listen(PORT, HOST, async () => {
   const connected = await testConnection();
   if (connected) {
     await initSchema();
+
+    // Open the minimum number of connections up front and keep them warm.
+    // Without this, the first request after an idle period pays the full TLS
+    // handshake cost of the remote database (often 1–3 seconds).
+    const warmed = await warmPool();
+    startPoolKeepAlive();
+
+    // Warm Prisma too (it shares the same pg pool).
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      console.log(`DB pool ready (${warmed} warm connection${warmed === 1 ? '' : 's'}).`);
+    } catch (err) {
+      console.warn('Prisma warm-up notice:', err.message);
+    }
+
+    // Preload the heavy read caches so the first candidate page load is fast
+    // even after a cold deploy. These run in parallel and never block requests
+    // (the server is already listening at this point).
+    Promise.all([warmQuestionsCache(), warmAssessmentsCache()])
+      .then(([questionsOk, assessmentsOk]) => {
+        console.log(`Cache warm-up: questions=${questionsOk ? 'ready' : 'lazy'}, assessments=${assessmentsOk ? 'ready' : 'lazy'}`);
+      })
+      .catch((err) => console.warn('Cache warm-up notice:', err.message));
+
     console.log('\nAPI Routes ready.');
   } else {
     console.warn('\nRunning without database. Check DATABASE_URL in backend/.env\n');
   }
+
+  // Initialize Sarvam Streaming STT WebSocket server
+  initSttStreamServer(server);
 });
+
+// Keep HTTP connections open longer than the reverse proxy's idle timeout so
+// clients do not pay a new TCP/TLS handshake on every burst of API calls.
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
 
 // ─── Graceful Shutdown ────────────────────────────────────────────────────────
 let isShuttingDown = false;

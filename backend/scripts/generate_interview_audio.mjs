@@ -5,12 +5,14 @@
  * transition/completion lines). This script renders each phrase to a static
  * MP3 via Sarvam (Bulbul) so the app never needs live TTS for them.
  *
- * Run once (from the backend dir so .env loads), then commit the output:
- *   node scripts/generate_interview_audio.mjs [--force]
+ * Run once per voice (from the backend dir so .env loads), then commit the output:
+ *   node scripts/generate_interview_audio.mjs --gender=male [--force]
+ *   node scripts/generate_interview_audio.mjs --gender=female [--force]
  *
  * Env (backend/.env):
  *   SARVAM_API_KEY        (required)
- *   SARVAM_VOICE_ID       (default: shubh)
+ *   SARVAM_VOICE_MALE     (default: shubh)
+ *   SARVAM_VOICE_FEMALE   (default: ritu)
  *   SARVAM_LANGUAGE_CODE  (default: en-IN)
  *   SARVAM_TTS_MODEL      (default: bulbul:v3)
  */
@@ -28,14 +30,19 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(BACKEND_DIR, '..');
-const OUTPUT_DIR = path.join(REPO_ROOT, 'frontend', 'public', 'audio', 'interview');
+const GENDER = (process.argv.find((arg) => arg.startsWith('--gender='))?.split('=')[1] || 'male').toLowerCase();
+const OUTPUT_DIR = path.join(REPO_ROOT, 'frontend', 'public', 'audio', 'interview', GENDER);
 
 // Prefer backend/.env regardless of the caller's cwd.
 dotenv.config({ path: path.join(BACKEND_DIR, '.env') });
 dotenv.config();
 
 const API_KEY = process.env.SARVAM_API_KEY;
-const VOICE_ID = process.env.SARVAM_VOICE_ID || 'shubh';
+const VOICE_OVERRIDE = process.argv.find((arg) => arg.startsWith('--voice='))?.split('=')[1];
+const VOICE_ID = VOICE_OVERRIDE
+  || (GENDER === 'female' ? process.env.SARVAM_VOICE_FEMALE : process.env.SARVAM_VOICE_MALE)
+  || process.env.SARVAM_VOICE_ID
+  || 'shubh';
 const LANGUAGE_CODE = process.env.SARVAM_LANGUAGE_CODE || 'en-IN';
 const MODEL = process.env.SARVAM_TTS_MODEL || 'bulbul:v3';
 const STREAM_ENDPOINT = 'https://api.sarvam.ai/text-to-speech/stream';
@@ -90,7 +97,7 @@ const main = async () => {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
   console.log(`Sarvam TTS -> ${path.relative(REPO_ROOT, OUTPUT_DIR)}`);
-  console.log(`voice=${VOICE_ID}  lang=${LANGUAGE_CODE}  model=${MODEL}  version=${INTERVIEW_AUDIO_VERSION}`);
+  console.log(`voice=${VOICE_ID}  gender=${GENDER}  lang=${LANGUAGE_CODE}  model=${MODEL}  version=${INTERVIEW_AUDIO_VERSION}`);
 
   const keys = Object.keys(INTERVIEW_AUDIO);
   let written = 0;

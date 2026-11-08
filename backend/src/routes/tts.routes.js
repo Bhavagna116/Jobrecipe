@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Readable } from 'stream';
 import { authenticateToken } from '../middleware/auth.js';
-import { isSarvamConfigured, synthesizeSpeech } from '../services/sarvamService.js';
+import { isSarvamConfigured, synthesizeSpeech, voiceForGender } from '../services/sarvamService.js';
 
 const router = Router();
 
@@ -19,7 +19,7 @@ const MAX_TEXT_LEN = 1200;
  * the browser Web Speech API.
  */
 router.post('/speak', authenticateToken, async (req, res) => {
-  const { text, voiceId } = req.body || {};
+  const { text, voiceId, voiceGender, speaker } = req.body || {};
   if (typeof text !== 'string' || text.trim() === '') {
     return res.status(400).json({ success: false, error: 'text is required.' });
   }
@@ -27,10 +27,20 @@ router.post('/speak', authenticateToken, async (req, res) => {
     return res.status(400).json({ success: false, error: 'text is too long.' });
   }
 
+  // `voiceGender` is the interviewer voice requested by the client ('male' or
+  // 'female'). `speaker` is an optional explicit Sarvam speaker override.
+  const requestedGender = typeof voiceGender === 'string' ? voiceGender.toLowerCase() : '';
+  let sarvamSpeaker = ['male', 'female'].includes(requestedGender)
+    ? voiceForGender(requestedGender)
+    : undefined;
+  if (!sarvamSpeaker && typeof speaker === 'string' && /^[a-z0-9_-]{2,40}$/i.test(speaker.trim())) {
+    sarvamSpeaker = speaker.trim();
+  }
+
   // 1. Sarvam Bulbul (primary)
   if (isSarvamConfigured()) {
     try {
-      const { audio, contentType } = await synthesizeSpeech(text);
+      const { audio, contentType } = await synthesizeSpeech(text, { speaker: sarvamSpeaker });
       res.setHeader('Content-Type', contentType);
       res.setHeader('Cache-Control', 'no-store');
       return res.end(audio);

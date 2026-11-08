@@ -10,6 +10,7 @@ import {
   getProctoringEventsFallback
 } from '../mockFallback.js';
 import { serverError } from '../utils/httpError.js';
+import { cacheGet, cacheSet, cacheDelete } from '../utils/shortCache.js';
 
 // POST /api/submissions
 export const submitAssessment = async (req, res) => {
@@ -290,6 +291,10 @@ export const submitAssessment = async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Scores changed: drop the cached /auth/me payload and submission list.
+    cacheDelete('me', String(candidateId));
+    cacheDelete('mySubmissions', String(candidateId));
+
     res.status(200).json({
       success: true,
       message: 'Assessment submitted successfully and recorded in database.',
@@ -353,13 +358,22 @@ export const getAllSubmissions = async (req, res) => {
 };
 
 // GET /api/submissions/my  (candidate's own submissions)
+const MY_SUBMISSIONS_CACHE_TTL_MS = Math.max(0, parseInt(process.env.MY_SUBMISSIONS_CACHE_TTL_MS || '10000', 10));
+
 export const getMySubmissions = async (req, res) => {
   const candId = req.user?.id || '';
   const candEmail = req.user?.email || '';
+  const cacheKey = String(candId || candEmail);
   try {
     if (!pool || !getDbStatus()) {
       return res.json({ success: true, data: getMySubmissionsFallback(candId, candEmail) });
     }
+
+    if (MY_SUBMISSIONS_CACHE_TTL_MS > 0) {
+      const cached = cacheGet('mySubmissions', cacheKey);
+      if (cached) return res.json(cached);
+    }
+
     const result = await pool.query(
       `SELECT s.*, 
               COALESCE(a.title, s.assessment_title) as assessment_title, 
@@ -379,7 +393,11 @@ export const getMySubmissions = async (req, res) => {
        ORDER BY s.created_at DESC`,
       [candId, candEmail]
     );
-    res.json({ success: true, data: result.rows });
+    const payload = { success: true, data: result.rows };
+    if (MY_SUBMISSIONS_CACHE_TTL_MS > 0) {
+      cacheSet('mySubmissions', cacheKey, payload, MY_SUBMISSIONS_CACHE_TTL_MS);
+    }
+    res.json(payload);
   } catch (err) {
     res.json({ success: true, data: getMySubmissionsFallback(candId, candEmail) });
   }

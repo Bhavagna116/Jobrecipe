@@ -426,6 +426,9 @@ export const AppProvider = ({ children }) => {
         return;
       }
       try {
+        // Fire the submissions sync in parallel with the session check instead
+        // of waiting for /auth/me first (saves a full round-trip on load).
+        const submissionsPromise = api.submissions.my().catch(() => null);
         const res = await api.auth.me();
         if (res.ok && res.data) {
           const candidateObj = res.data.candidate || (res.data.role === 'candidate' ? res.data.user : null);
@@ -434,11 +437,11 @@ export const AppProvider = ({ children }) => {
             setRole('candidate');
             // Synchronize candidate submissions from DB
             try {
-              const subRes = await api.submissions.my();
+              const subRes = await submissionsPromise;
               const subList = Array.isArray(subRes?.data?.data)
                 ? subRes.data.data
                 : (Array.isArray(subRes?.data) ? subRes.data : []);
-              if (subRes.ok && Array.isArray(subList)) {
+              if (subRes?.ok && Array.isArray(subList)) {
                 setCandidateSubmissions(subList);
                 try { localStorage.setItem('rsj_candidate_submissions', JSON.stringify(subList)); } catch(e){}
                 if (subList.length > 0) {
@@ -575,6 +578,7 @@ export const AppProvider = ({ children }) => {
             total_marks: asmTotalMarks,
             selectedQuestionIds: asmSelectedIds,
             selected_question_ids: asmSelectedIds,
+            collegeIds: Array.isArray(rawAsm.college_ids) ? rawAsm.college_ids : [],
             topics: Array.isArray(rawAsm.topics) ? rawAsm.topics : []
           };
           const key = String(asm.id).trim().toLowerCase();
@@ -1873,7 +1877,8 @@ export const AppProvider = ({ children }) => {
         durationMinutes: created.durationMinutes,
         totalQuestions: created.totalQuestions,
         passingScore: created.passingScore,
-        selectedQuestionIds: created.selectedQuestionIds || []
+        selectedQuestionIds: created.selectedQuestionIds || [],
+        collegeIds: created.collegeIds || []
       });
 
       if (res && res.ok) {
@@ -1906,7 +1911,8 @@ export const AppProvider = ({ children }) => {
         totalQuestions: updatedAsm.totalQuestions,
         passingScore: updatedAsm.passingScore,
         status: updatedAsm.status || 'Available',
-        selectedQuestionIds: updatedAsm.selectedQuestionIds || []
+        selectedQuestionIds: updatedAsm.selectedQuestionIds || [],
+        collegeIds: updatedAsm.collegeIds || []
       });
 
       if (res && res.ok) {

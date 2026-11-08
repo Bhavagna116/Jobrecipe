@@ -8,6 +8,65 @@
   }
 }
 
+@layer utilities {
+  /* Subtle pulse animation for active speaker glow */
+  .animate-pulse-subtle {
+    animation: pulseSubtle 2.5s ease-in-out infinite;
+  }
+
+  @keyframes pulseSubtle {
+    0%, 100% {
+      box-shadow: 0 0 16px rgba(6, 182, 212, 0.3), 0 0 32px rgba(6, 182, 212, 0.15);
+    }
+    50% {
+      box-shadow: 0 0 24px rgba(6, 182, 212, 0.5), 0 0 48px rgba(6, 182, 212, 0.25);
+    }
+  }
+
+  /* Subtle ring pulse for listening state */
+  .animate-pulse-ring-emerald {
+    animation: pulseRingEmerald 2s ease-in-out infinite;
+  }
+
+  @keyframes pulseRingEmerald {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+    }
+  }
+
+  /* Subtle ring pulse for processing state */
+  .animate-pulse-ring-amber {
+    animation: pulseRingAmber 2s ease-in-out infinite;
+  }
+
+  @keyframes pulseRingAmber {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
+    }
+  }
+
+  /* Smooth focus ring transitions */
+  .focus-ring-smooth {
+    @apply transition-all duration-300 ease-out;
+  }
+
+  /* Glassmorphism card */
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-lg border border-white/20 shadow-xl;
+  }
+
+  /* Subtle hover lift */
+  .hover-lift {
+    @apply transition-transform duration-200 hover:-translate-y-0.5;
+  }
+}
+
 /* Custom modern scrollbars */
 ::-webkit-scrollbar {
   width: 6px;

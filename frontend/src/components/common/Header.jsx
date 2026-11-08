@@ -191,7 +191,7 @@ export const Header = ({ onToggleSidebar }) => {
           <div className="flex items-center gap-3">
             
             {/* AI Mock Interview CTA */}
-            {role !== 'admin' && (
+            {/* {role !== 'admin' && (
               <button
                 onClick={() => {
                   if (!isInterviewUnlocked) {
@@ -221,7 +221,7 @@ export const Header = ({ onToggleSidebar }) => {
                   </>
                 )}
               </button>
-            )}
+            )} */}
 
             {isGuest ? (
               <div className="flex items-center gap-2">

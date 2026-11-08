@@ -2,12 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import prisma from '../db/prisma.js';
+import { pool } from '../db/pool.js';
 import { canReadCandidate } from '../middleware/ownership.js';
-import {
-  createStreamingToken,
-  getAvatarConfig,
-  releaseStreamingSession
-} from '../services/heygenService.js';
 
 /**
  * Interview session ownership: a session belongs to a candidate user. Access is
@@ -378,16 +374,22 @@ export const saveQuestionAnswer = async (req, res) => {
       telemetry = {}
     } = req.body;
 
-    const question = await prisma.interviewQuestion.findUnique({
-      where: { id: questionId },
-      include: { session: true }
-    });
+    // Single round-trip: resolve the question's owning session user without
+    // loading the entire session row (Prisma's include costs two queries here).
+    const lookup = await pool.query(
+      `SELECT q.id AS question_id, s.user_id
+       FROM interview_questions q
+       JOIN interview_sessions s ON s.id = q.session_id
+       WHERE q.id = $1`,
+      [questionId]
+    );
+    const found = lookup.rows[0];
 
-    if (!question) {
+    if (!found) {
       return res.status(404).json({ success: false, error: 'Interview question not found.' });
     }
 
-    if (await sessionAccessDenied(req, question.session?.userId)) {
+    if (await sessionAccessDenied(req, found.user_id)) {
       return res.status(403).json({ success: false, error: 'Access denied: this interview session belongs to another candidate.' });
     }
 
@@ -483,33 +485,36 @@ export const saveQuestionAnswer = async (req, res) => {
     }
 
     try {
-      await prisma.interviewAnswer.create({
-        data: {
-          id: answerId,
-          questionId,
-          transcript,
-          startedAt: startedAt ? new Date(startedAt) : new Date(Date.now() - duration * 1000),
-          completedAt: completedAt ? new Date(completedAt) : new Date(),
-          duration: Number(duration) || 0,
-          overallScore: overallQScore,
-          communicationScore: commScore,
-          technicalScore: techScore,
-          confidenceScore: confidenceVal,
-          eyeContactScore: eyeContactVal,
-          attentionScore: attentionVal,
-          relevanceScore: relevanceScore,
-          dominantEmotion,
-          speechRate: speechRateVal,
-          answerQuality,
-          aiFeedback
-        }
-      });
-
-      // Mark question completed
-      await prisma.interviewQuestion.update({
-        where: { id: questionId },
-        data: { completedAt: new Date() }
-      });
+      // The answer insert and the question completion update are independent;
+      // run them concurrently to save a full database round-trip.
+      await Promise.all([
+        prisma.interviewAnswer.create({
+          data: {
+            id: answerId,
+            questionId,
+            transcript,
+            startedAt: startedAt ? new Date(startedAt) : new Date(Date.now() - duration * 1000),
+            completedAt: completedAt ? new Date(completedAt) : new Date(),
+            duration: Number(duration) || 0,
+            overallScore: overallQScore,
+            communicationScore: commScore,
+            technicalScore: techScore,
+            confidenceScore: confidenceVal,
+            eyeContactScore: eyeContactVal,
+            attentionScore: attentionVal,
+            relevanceScore: relevanceScore,
+            dominantEmotion,
+            speechRate: speechRateVal,
+            answerQuality,
+            aiFeedback
+          }
+        }),
+        // Mark question completed
+        prisma.interviewQuestion.update({
+          where: { id: questionId },
+          data: { completedAt: new Date() }
+        }),
+      ]);
     } catch (dbErr) {
       console.warn('Prisma saveQuestionAnswer notice:', dbErr.message);
     }
@@ -1111,68 +1116,5 @@ export const updateInterviewSettings = async (req, res) => {
   } catch (err) {
     console.error('Error updating interview settings:', err);
     return res.status(500).json({ success: false, error: 'Failed to update settings' });
-  }
-};
-
-/**
- * POST /api/interview/avatar/token
- * Generate a short-lived HeyGen streaming session token securely on the backend.
- * The permanent HeyGen API key is never exposed to the client.
- */
-export const createAvatarToken = async (req, res) => {
-  try {
-    const userId = req.user?.id || 'guest';
-    const { sessionId, allowMock = false } = req.body || {};
-
-    if (sessionId) {
-      const existing = memorySessions.get(sessionId);
-      if (existing?.userId && await sessionAccessDenied(req, existing.userId)) {
-        return res.status(403).json({ success: false, error: 'Forbidden' });
-      }
-    }
-
-    const result = await createStreamingToken({
-      userId,
-      sessionId: sessionId || `session_${Date.now()}`,
-      allowMock
-    });
-
-    return res.json(result);
-  } catch (error) {
-    console.error('Error creating avatar token:', error);
-    return res.status(500).json({
-      success: false,
-      fallbackMode: true,
-      error: 'Failed to create streaming avatar token. The interview will proceed in animated avatar mode.'
-    });
-  }
-};
-
-/**
- * GET /api/interview/avatar/config
- * Retrieve public avatar configuration and curated interviewer presets.
- */
-export const getAvatarSettings = async (_req, res) => {
-  try {
-    const config = getAvatarConfig();
-    return res.json({ success: true, config });
-  } catch (error) {
-    console.error('Error fetching avatar config:', error);
-    return res.status(500).json({ success: false, error: 'Failed to retrieve avatar configuration' });
-  }
-};
-
-/**
- * POST /api/interview/avatar/release
- * Inform the backend that an avatar streaming session has ended so tracking
- * resources can be freed.
- */
-export const releaseAvatarSession = async (req, res) => {
-  try {
-    const { sessionId } = req.body || {};
-    if (sessionId) releaseStreamingSession(sessionId);
-    return res.json({ success: true });
-  } catch (error) {
-    return res.json({ success: true });
   }
 };

@@ -49,6 +49,9 @@ export const AdminCandidatesPage = () => {
   const [selectedYear, setSelectedYear] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedReadiness, setSelectedReadiness] = useState('All');
+  const [selectedBranch, setSelectedBranch] = useState('All');
+  const [scoreMin, setScoreMin] = useState('');
+  const [scoreMax, setScoreMax] = useState('');
   const [viewCandidate, setViewCandidate] = useState(null);
   const [reportCandidate, setReportCandidate] = useState(null);
   const [candidateProctoringEvents, setCandidateProctoringEvents] = useState([]);
@@ -195,15 +198,39 @@ export const AdminCandidatesPage = () => {
       const candCollege = c.college || c.collegeName || '';
       const candStatus = c.assessmentStatus || c.status || 'Active';
       const candYear = String(c.graduationYear || c.graduation_year || '');
+      const candBranch = c.branch || '';
 
       const matchCollege = selectedCollege === 'All' || candCollege.toLowerCase() === selectedCollege.toLowerCase();
       const matchYear = selectedYear === 'All' || candYear === String(selectedYear);
+      const matchBranch = selectedBranch === 'All' || candBranch.toLowerCase() === selectedBranch.toLowerCase();
       const matchStatus = selectedStatus === 'All' || candStatus.toLowerCase() === selectedStatus.toLowerCase();
       const matchReadiness = selectedReadiness === 'All' || c.readiness === selectedReadiness || !selectedReadiness;
 
-      return matchSearch && matchCollege && matchYear && matchStatus && matchReadiness;
+      // Exam score range filter
+      const candScore = Number(c.overallScore ?? c.jobReadinessScore ?? c.job_readiness_score ?? 0);
+      const minScore = scoreMin ? Number(scoreMin) : -Infinity;
+      const maxScore = scoreMax ? Number(scoreMax) : Infinity;
+      const matchScore = candScore >= minScore && candScore <= maxScore;
+
+      return matchSearch && matchCollege && matchBranch && matchYear && matchStatus && matchReadiness && matchScore;
     });
-  }, [safeCandidatesList, searchQuery, selectedCollege, selectedYear, selectedStatus, selectedReadiness, allInterviewSessions]);
+  }, [safeCandidatesList, searchQuery, selectedCollege, selectedBranch, selectedYear, selectedStatus, selectedReadiness, scoreMin, scoreMax, allInterviewSessions]);
+
+  const handleSortChange = (key) => {
+    if (sortBy === key) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(key);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortIndicator = (key) => {
+    if (sortBy !== key) return <ArrowUpDown className="w-3 h-3 text-slate-400 ml-1" />;
+    return sortDirection === 'asc'
+      ? <svg className="w-3 h-3 text-brand-600 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7"></path></svg>
+      : <svg className="w-3 h-3 text-brand-600 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>;
+  };
 
   const handleDownloadCSV = () => {
     if (!filteredCandidates || filteredCandidates.length === 0) {
@@ -247,6 +274,7 @@ export const AdminCandidatesPage = () => {
   };
 
   const uniqueColleges = Array.from(new Set(safeCandidatesList.map(c => c.college || c.collegeName).filter(Boolean)));
+  const uniqueBranches = Array.from(new Set(safeCandidatesList.map(c => c.branch).filter(Boolean)));
 
   return (
     <div className="space-y-8 pb-16">
@@ -291,22 +319,41 @@ export const AdminCandidatesPage = () => {
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-card p-4 sm:p-5 space-y-4">
         <div className="flex flex-col md:flex-row items-center gap-3">
 
-          <div className="relative flex-1 w-full">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <div className="relative w-80 max-w-xs">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search candidate by name, email, mobile, college, role, interview..."
+              placeholder="Search candidate..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-brand-500 focus:bg-white transition-all text-slate-800"
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-brand-500 focus:bg-white transition-all text-slate-800"
             />
           </div>
 
-          <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+          <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto pb-1 md:pb-0">
+            <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 shrink-0">
+              <input
+                type="number"
+                placeholder="Min"
+                value={scoreMin}
+                onChange={(e) => setScoreMin(e.target.value)}
+                className="w-14 px-2 py-1.5 bg-transparent text-xs rounded border-none focus:ring-0 outline-none text-slate-700"
+              />
+              <span className="text-[10px] text-slate-400 font-mono">–</span>
+              <input
+                type="number"
+                placeholder="Max"
+                value={scoreMax}
+                onChange={(e) => setScoreMax(e.target.value)}
+                className="w-14 px-2 py-1.5 bg-transparent text-xs rounded border-none focus:ring-0 outline-none text-slate-700"
+              />
+              <span className="text-[10px] text-slate-500 font-medium font-sans">Score</span>
+            </div>
+
             <select
               value={selectedCollege}
               onChange={(e) => setSelectedCollege(e.target.value)}
-              className="px-3 py-2 bg-slate-50 text-xs rounded-xl border border-slate-200 outline-none text-slate-700 font-medium"
+              className="px-3 py-2 bg-slate-50 text-xs rounded-xl border border-slate-200 outline-none text-slate-700 font-medium shrink-0"
             >
               <option value="All">All Institutions</option>
               {uniqueColleges.map(col => (
@@ -317,13 +364,24 @@ export const AdminCandidatesPage = () => {
             <select
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
-              className="px-3 py-2 bg-slate-50 text-xs rounded-xl border border-slate-200 outline-none text-slate-700 font-medium"
+              className="px-3 py-2 bg-slate-50 text-xs rounded-xl border border-slate-200 outline-none text-slate-700 font-medium shrink-0"
             >
               <option value="All">All Grad Years</option>
               <option value="2024">2024</option>
               <option value="2025">2025</option>
               <option value="2026">2026</option>
               <option value="2027">2027</option>
+            </select>
+
+            <select
+              value={selectedBranch}
+              onChange={(e) => setSelectedBranch(e.target.value)}
+              className="px-3 py-2 bg-slate-50 text-xs rounded-xl border border-slate-200 outline-none text-slate-700 font-medium shrink-0"
+            >
+              <option value="All">All Branches</option>
+              {uniqueBranches.map(br => (
+                <option key={br} value={br}>{br}</option>
+              ))}
             </select>
           </div>
 

@@ -5,16 +5,20 @@
  * three curated questions and the fixed transition / completion lines. Because
  * nothing spoken is dynamic, these phrases are rendered to static audio clips
  * once (see backend/scripts/generate_interview_audio.mjs) and served from
- * /public/audio/interview/. Playback is resolved by matching the exact phrase
- * text, so any text that is NOT in this manifest transparently falls back to
- * the live TTS proxy / browser speech engine.
+ * /public/audio/interview/{male,female}/. Playback is resolved by matching the
+ * exact phrase text, so any text that is NOT in this manifest transparently
+ * falls back to the live TTS proxy / browser speech engine.
  *
  * Keep INTERVIEW_AUDIO texts byte-for-byte identical to the strings used in
  * AIMockInterviewPage.jsx and resumeParser.js. Bump INTERVIEW_AUDIO_VERSION
  * whenever a clip is regenerated so browsers fetch the new file.
  */
-export const INTERVIEW_AUDIO_VERSION = '1';
+export const INTERVIEW_AUDIO_VERSION = '2';
 export const INTERVIEW_AUDIO_BASE = '/audio/interview';
+export const INTERVIEW_AUDIO_BASES = {
+  male: `${INTERVIEW_AUDIO_BASE}/male`,
+  female: `${INTERVIEW_AUDIO_BASE}/female`,
+};
 
 export const INTERVIEW_AUDIO = {
   'q-intro-1': {
@@ -70,17 +74,21 @@ Object.keys(INTERVIEW_AUDIO).forEach((key) => {
 export const findInterviewAudioKey = (text) => TEXT_INDEX[normalize(text)] || null;
 
 /** Public URL for a rendered clip (cache-busted by the manifest version). */
-export const getInterviewAudioSrc = (key) =>
-  `${INTERVIEW_AUDIO_BASE}/${key}.mp3?v=${INTERVIEW_AUDIO_VERSION}`;
+export const getInterviewAudioSrc = (key, voiceGender = 'male') => {
+  const gender = String(voiceGender || '').toLowerCase() === 'female' ? 'female' : 'male';
+  return `${INTERVIEW_AUDIO_BASES[gender]}/${key}.mp3?v=${INTERVIEW_AUDIO_VERSION}`;
+};
 
 /**
  * Resolve a spoken phrase to a playable clip descriptor.
+ * @param {string} text
+ * @param {'male'|'female'} voiceGender interviewer voice to use
  * @returns {{ key: string, src: string, text: string } | null}
  */
-export const getInterviewAudioForText = (text) => {
+export const getInterviewAudioForText = (text, voiceGender = 'male') => {
   const key = findInterviewAudioKey(text);
   if (!key) return null;
-  return { key, src: getInterviewAudioSrc(key), text: INTERVIEW_AUDIO[key].text };
+  return { key, src: getInterviewAudioSrc(key, voiceGender), text: INTERVIEW_AUDIO[key].text };
 };
 
 export default INTERVIEW_AUDIO;

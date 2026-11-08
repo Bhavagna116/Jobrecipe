@@ -45,6 +45,8 @@ model CandidateProfile {
   city                 String?   @db.VarChar(128)
   graduationYear       Int?      @map("graduation_year")
   experienceLevel      String?   @map("experience_level") @db.VarChar(64)
+  gender               String?   @db.VarChar(32)
+  rollNumber           String?   @map("roll_number") @db.VarChar(64)
   tenthSchool          String?   @map("tenth_school") @db.VarChar(255)
   tenthMarks           Decimal?  @map("tenth_marks") @db.Decimal(5, 2)
   twelfthCollege       String?   @map("twelfth_college") @db.VarChar(255)

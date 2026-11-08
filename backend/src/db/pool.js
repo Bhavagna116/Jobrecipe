@@ -1,5 +1,6 @@
 import pkg from 'pg';
 const { Pool } = pkg;
+import { AsyncLocalStorage } from 'node:async_hooks';
 import dotenv from 'dotenv';
 dotenv.config();
 import { databaseUrl } from '../config/urls.js';
@@ -13,6 +14,18 @@ if (!connectionString) {
 const isProduction = process.env.NODE_ENV === 'production';
 const isLocalhost = Boolean(connectionString) && (connectionString.includes('localhost') || connectionString.includes('127.0.0.1'));
 
+// ─── Tunables ────────────────────────────────────────────────────────────────
+// The database is often reached through a public proxy (Railway) where opening a
+// new TLS connection costs 1–3 seconds. Keeping a few connections open is the
+// single biggest latency win, so `min` is deliberately > 0 and the idle timeout
+// is much longer than the pg default (10s).
+const POOL_MIN = Math.max(0, parseInt(process.env.DATABASE_POOL_MIN || '2', 10));
+const POOL_MAX = Math.max(POOL_MIN, parseInt(process.env.DATABASE_POOL_MAX || '20', 10));
+const CONNECTION_TIMEOUT_MS = parseInt(process.env.DATABASE_CONNECTION_TIMEOUT || process.env.DB_CONNECTION_TIMEOUT || '10000', 10);
+const IDLE_TIMEOUT_MS = parseInt(process.env.DATABASE_IDLE_TIMEOUT || process.env.DB_IDLE_TIMEOUT || '60000', 10);
+const KEEPALIVE_MS = parseInt(process.env.DATABASE_KEEPALIVE_MS || '45000', 10);
+const SLOW_QUERY_MS = parseInt(process.env.SLOW_QUERY_MS || '250', 10);
+
 // TLS policy for remote database connections.
 // - Localhost: no TLS.
 // - Remote: TLS ON with certificate validation ENABLED by default. A private CA may be
@@ -25,16 +38,25 @@ const buildSslConfig = () => {
   return { rejectUnauthorized, ...(ca ? { ca } : {}) };
 };
 
+/**
+ * Per-request DB timing context. index.js runs each request inside this store so
+ * a slow request log can say how much of the time was spent in Postgres.
+ */
+export const dbQueryContext = new AsyncLocalStorage();
+
+const queryStats = { queries: 0, slowQueries: 0, totalQueryMs: 0 };
+export const getDbQueryStats = () => ({ ...queryStats });
+
 export const pool = connectionString
   ? new Pool({
       connectionString,
       ssl: buildSslConfig(),
-      connectionTimeoutMillis: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT || process.env.DB_CONNECTION_TIMEOUT || '10000', 10),
-      idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT || process.env.DB_IDLE_TIMEOUT || '10000', 10),
+      connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
+      idleTimeoutMillis: IDLE_TIMEOUT_MS,
       keepAlive: true,
-      keepAliveInitialDelayMillis: 10000,
-      min: 0,
-      max: parseInt(process.env.DATABASE_POOL_MAX || process.env.DB_POOL_MAX || '20', 10),
+      keepAliveInitialDelayMillis: 5000,
+      min: POOL_MIN,
+      max: POOL_MAX,
     })
   : null;
 
@@ -48,12 +70,92 @@ if (pool) {
       console.error('PostgreSQL client connection error (handled):', err.message);
     });
   });
+
+  // Instrument every pool.query so we can attribute latency to the database.
+  // (Queries run on clients obtained via pool.connect() are not instrumented,
+  // which keeps keep-alive probes out of the slow-query log.)
+  const originalQuery = pool.query.bind(pool);
+  pool.query = async (...args) => {
+    const startedAt = process.hrtime.bigint();
+    try {
+      return await originalQuery(...args);
+    } finally {
+      const ms = Number(process.hrtime.bigint() - startedAt) / 1e6;
+      queryStats.queries += 1;
+      queryStats.totalQueryMs += ms;
+
+      const ctx = dbQueryContext.getStore();
+      if (ctx) {
+        ctx.count += 1;
+        ctx.totalMs += ms;
+      }
+
+      if (ms >= SLOW_QUERY_MS) {
+        queryStats.slowQueries += 1;
+        const first = args[0];
+        const text = typeof first === 'string'
+          ? first
+          : (first && typeof first === 'object' && typeof first.text === 'string' ? first.text : 'query');
+        console.warn(`[SLOW QUERY] ${ms.toFixed(0)}ms :: ${text.replace(/\s+/g, ' ').trim().slice(0, 180)}`);
+      }
+    }
+  };
 } else {
   console.warn('DATABASE_URL is not set in backend/.env. Database features will run in mock mode.');
 }
 
 let isConnected = false;
 export const getDbStatus = () => isConnected;
+
+/**
+ * Open `count` connections and release them back to the pool so the first real
+ * request does not pay the cold-connect cost.
+ */
+export const warmPool = async (count = POOL_MIN) => {
+  if (!pool) return 0;
+  const clients = [];
+  try {
+    const target = Math.max(1, Math.min(count, POOL_MAX));
+    for (let i = 0; i < target; i++) {
+      clients.push(await pool.connect());
+    }
+    return clients.length;
+  } catch (err) {
+    console.warn('Pool warm-up notice:', err.message);
+    return clients.length;
+  } finally {
+    clients.forEach((client) => {
+      try { client.release(); } catch { /* already released */ }
+    });
+  }
+};
+
+let keepAliveTimer = null;
+/**
+ * Ping an idle connection periodically so the upstream proxy does not silently
+ * drop it. Uses a raw client so probes are not logged as slow queries.
+ */
+export const startPoolKeepAlive = (intervalMs = KEEPALIVE_MS) => {
+  if (!pool || keepAliveTimer || intervalMs <= 0) return;
+  keepAliveTimer = setInterval(async () => {
+    if (pool.idleCount === 0) return;
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query('SELECT 1');
+    } catch (err) {
+      console.warn('[DB keepalive] notice:', err.message);
+    } finally {
+      try { client?.release(); } catch { /* noop */ }
+    }
+  }, intervalMs);
+  keepAliveTimer.unref?.();
+};
+
+export const stopPoolKeepAlive = () => {
+  if (keepAliveTimer) clearInterval(keepAliveTimer);
+  keepAliveTimer = null;
+};
 
 export const testConnection = async (retries = 3, timeoutMs = 8000) => {
   if (!pool) {
@@ -85,6 +187,7 @@ export const testConnection = async (retries = 3, timeoutMs = 8000) => {
 
 export const closePool = async () => {
   try {
+    stopPoolKeepAlive();
     if (pool) {
       await pool.end();
       console.log('PostgreSQL connection pool closed gracefully.');

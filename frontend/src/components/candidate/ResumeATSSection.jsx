@@ -338,7 +338,7 @@ export const ResumeATSSection = () => {
               </>
             ) : (
               <>
-                <span>Start AI Mock Interview for {targetRole}</span>
+                <span>Start AI Mock Interview</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}

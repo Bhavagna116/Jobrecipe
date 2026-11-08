@@ -6,12 +6,40 @@ import { JWT_SECRET } from "../config/secrets.js";
  * Check if a token has been explicitly revoked (logged out).
  * Uses Redis denylist keyed by jti (JWT ID).
  * Gracefully skips denylist check when Redis is unavailable.
+ *
+ * A short-lived in-memory cache of "not revoked" results avoids a Redis
+ * round-trip on every authenticated request (the Redis proxy can add
+ * 100–350ms per call). Revocations still take effect within
+ * TOKEN_REVOCATION_CACHE_MS.
  */
+const REVOCATION_CACHE_MS = Math.max(0, parseInt(process.env.TOKEN_REVOCATION_CACHE_MS || '15000', 10));
+const MAX_REVOCATION_CACHE_ENTRIES = 5000;
+const notRevokedCache = new Map(); // jti -> expiresAt (ms)
+
 const isTokenRevoked = async (jti) => {
   if (!jti || !isRedisAvailable()) return false;
+
+  const now = Date.now();
+  const cachedUntil = notRevokedCache.get(jti);
+  if (cachedUntil && cachedUntil > now) return false;
+
   try {
     const exists = await redisClient.exists("denylist:" + jti);
-    return exists === 1;
+    if (exists === 1) {
+      notRevokedCache.delete(jti);
+      return true;
+    }
+
+    if (REVOCATION_CACHE_MS > 0) {
+      if (notRevokedCache.size >= MAX_REVOCATION_CACHE_ENTRIES) {
+        for (const [key, expiresAt] of notRevokedCache) {
+          if (expiresAt <= now) notRevokedCache.delete(key);
+        }
+        if (notRevokedCache.size >= MAX_REVOCATION_CACHE_ENTRIES) notRevokedCache.clear();
+      }
+      notRevokedCache.set(jti, now + REVOCATION_CACHE_MS);
+    }
+    return false;
   } catch { return false; }
 };
 

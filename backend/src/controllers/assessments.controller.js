@@ -5,11 +5,57 @@ import { serverError } from '../utils/httpError.js';
 
 let assessmentsCache = null;
 let lastAssessmentsFetch = 0;
-const CACHE_TTL_MS = 3000;
+const CACHE_TTL_MS = Math.max(0, parseInt(process.env.ASSESSMENTS_CACHE_TTL_MS || '120000', 10));
 
 export const clearAssessmentsCache = () => {
   assessmentsCache = null;
   lastAssessmentsFetch = 0;
+};
+
+/**
+ * Prefetch the candidate assessment list at startup. Mirrors the candidate
+ * branch of getAllAssessments (archived assessments excluded, no college
+ * filter) so the first dashboard load is served from memory.
+ */
+export const warmAssessmentsCache = async () => {
+  if (!pool || !getDbStatus()) return false;
+  try {
+    const result = await pool.query(`
+      SELECT 
+        a.*,
+        COALESCE(
+          (SELECT COUNT(*) FROM assessment_questions aq WHERE aq.assessment_id = a.id AND aq.assessment_id IS NOT NULL),
+          a.total_questions,
+          0
+        )::int as total_questions,
+        COALESCE(
+          (SELECT json_agg(DISTINCT ac.college_id) FROM assessment_colleges ac WHERE ac.assessment_id = a.id),
+          '[]'::json
+        ) as college_ids,
+        COALESCE(
+          (SELECT json_agg(aq.question_id) FROM assessment_questions aq WHERE aq.assessment_id = a.id),
+          '[]'::json
+        ) as selected_question_ids
+      FROM assessments a
+      WHERE 1=1 AND a.status IS DISTINCT FROM 'Archived'
+      ORDER BY a.created_at DESC
+    `);
+    const rows = result.rows.map(r => ({
+      ...r,
+      status: (!r.status || r.status === 'Draft') ? 'Available' : r.status,
+      durationMinutes: Number(r.duration_minutes) || 10,
+      totalQuestions: Number(r.total_questions) || 0,
+      passingScore: Number(r.passing_score) || 70,
+      totalMarks: Number(r.total_marks) || 100,
+      collegeIds: Array.isArray(r.college_ids) ? r.college_ids : [],
+    }));
+    assessmentsCache = { success: true, data: rows };
+    lastAssessmentsFetch = Date.now();
+    return true;
+  } catch (err) {
+    console.warn('[assessments] cache warm-up notice:', err.message);
+    return false;
+  }
 };
 
 // GET /api/assessments
@@ -23,10 +69,22 @@ export const getAllAssessments = async (req, res) => {
 
     // Archived assessments are hidden from candidates but still visible to admins
     const includeArchived = req.user?.role === 'admin';
+    const isCollegeAdmin = req.user?.role === 'college_admin';
+    const userCollegeId = req.user?.college_id || null;
 
     // Cache serves the candidate view only (admin view must stay fresh & must not poison it)
     if (!includeArchived && assessmentsCache && (now - lastAssessmentsFetch < CACHE_TTL_MS)) {
       return res.json(assessmentsCache);
+    }
+
+    // Build college filter for college_admin: only show assessments linked to their college
+    let collegeFilter = '';
+    const queryParams = [];
+    if (isCollegeAdmin && userCollegeId) {
+      collegeFilter = `AND EXISTS (
+        SELECT 1 FROM assessment_colleges ac WHERE ac.assessment_id = a.id AND ac.college_id = $${queryParams.length + 1}
+      )`;
+      queryParams.push(userCollegeId);
     }
 
     const result = await pool.query(`
@@ -38,13 +96,18 @@ export const getAllAssessments = async (req, res) => {
           0
         )::int as total_questions,
         COALESCE(
+          (SELECT json_agg(DISTINCT ac.college_id) FROM assessment_colleges ac WHERE ac.assessment_id = a.id),
+          '[]'::json
+        ) as college_ids,
+        COALESCE(
           (SELECT json_agg(aq.question_id) FROM assessment_questions aq WHERE aq.assessment_id = a.id),
           '[]'::json
         ) as selected_question_ids
       FROM assessments a
-      ${includeArchived ? '' : "WHERE a.status IS DISTINCT FROM 'Archived'"}
+      WHERE 1=1 ${collegeFilter}
+      ${includeArchived ? '' : "AND a.status IS DISTINCT FROM 'Archived'"}
       ORDER BY a.created_at DESC
-    `);
+    `, queryParams);
     const rows = result.rows.map(r => ({
       ...r,
       status: (!r.status || r.status === 'Draft') ? 'Available' : r.status,
@@ -52,6 +115,7 @@ export const getAllAssessments = async (req, res) => {
       totalQuestions: Number(r.total_questions) || 0,
       passingScore: Number(r.passing_score) || 70,
       totalMarks: Number(r.total_marks) || 100,
+      collegeIds: Array.isArray(r.college_ids) ? r.college_ids : [],
     }));
     const responsePayload = { success: true, data: rows };
 
@@ -78,6 +142,10 @@ export const getAssessmentById = async (req, res) => {
           0
         )::int as total_questions,
         COALESCE(
+          (SELECT json_agg(DISTINCT ac.college_id) FROM assessment_colleges ac WHERE ac.assessment_id = a.id),
+          '[]'::json
+        ) as college_ids,
+        COALESCE(
           (SELECT json_agg(aq.question_id) FROM assessment_questions aq WHERE aq.assessment_id = a.id),
           '[]'::json
         ) as selected_question_ids
@@ -91,6 +159,7 @@ export const getAssessmentById = async (req, res) => {
       totalQuestions: Number(result.rows[0].total_questions) || 0,
       passingScore: Number(result.rows[0].passing_score) || 70,
       totalMarks: Number(result.rows[0].total_marks) || 100,
+      collegeIds: Array.isArray(result.rows[0].college_ids) ? result.rows[0].college_ids : [],
     };
     res.json({ success: true, data: formatted });
   } catch (err) {
@@ -218,7 +287,7 @@ export const syncAssessmentQuestions = async (client, assessmentId, selectedQues
 
 // POST /api/assessments  (admin only)
 export const createAssessment = async (req, res) => {
-  const { id: customId, title, category, description, difficulty, durationMinutes, totalQuestions, passingScore, selectedQuestionIds } = req.body;
+  const { id: customId, title, category, description, difficulty, durationMinutes, totalQuestions, passingScore, selectedQuestionIds, collegeIds } = req.body;
   const id = customId || `asm-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
   const client = await pool.connect();
 
@@ -258,6 +327,19 @@ export const createAssessment = async (req, res) => {
       [id, title, category || 'Technical', description || null, difficulty || 'Medium', Number(durationMinutes) || 30, finalTotalQuestions, totalMarksVal, Number(passingScore) || 65, statusVal, createdBy]
     );
 
+    // Link assessment to colleges
+    const collegeIdList = Array.isArray(collegeIds) ? collegeIds : [];
+    if (collegeIdList.length > 0) {
+      for (const cid of collegeIdList) {
+        await client.query(
+          `INSERT INTO assessment_colleges (id, assessment_id, college_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (assessment_id, college_id) DO NOTHING`,
+          [`ac-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`, id, cid]
+        );
+      }
+    }
+
     // Sync questions into assessment_questions table
     await syncAssessmentQuestions(client, id, selectedQuestionIds, category || 'Technical', finalTotalQuestions);
 
@@ -274,7 +356,7 @@ export const createAssessment = async (req, res) => {
 
 // PUT /api/assessments/:id
 export const updateAssessment = async (req, res) => {
-  const { title, category, description, difficulty, durationMinutes, totalQuestions, passingScore, status, selectedQuestionIds } = req.body;
+  const { title, category, description, difficulty, durationMinutes, totalQuestions, passingScore, status, selectedQuestionIds, collegeIds } = req.body;
   const client = await pool.connect();
 
   const finalTotalQuestions = (Array.isArray(selectedQuestionIds) && selectedQuestionIds.length > 0)
@@ -316,6 +398,19 @@ export const updateAssessment = async (req, res) => {
     }
 
     const updatedAsm = result.rows[0];
+
+    // Update college links if provided
+    if (Array.isArray(collegeIds)) {
+      await client.query('DELETE FROM assessment_colleges WHERE assessment_id = $1', [req.params.id]);
+      for (const cid of collegeIds) {
+        await client.query(
+          `INSERT INTO assessment_colleges (id, assessment_id, college_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (assessment_id, college_id) DO NOTHING`,
+          [`ac-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`, req.params.id, cid]
+        );
+      }
+    }
 
     // If selectedQuestionIds are provided in the update, sync them
     if (selectedQuestionIds !== undefined) {

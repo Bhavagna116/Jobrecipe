@@ -7,13 +7,40 @@ let questionsCacheAdmin = null;
 let lastAdminFetch = 0;
 let questionsCacheCandidate = null;
 let lastCandidateFetch = 0;
-const CACHE_TTL_MS = 3000;
+const CACHE_TTL_MS = Math.max(0, parseInt(process.env.QUESTIONS_CACHE_TTL_MS || '120000', 10));
+
+// Columns shared by every question query. Answer key / explanation are appended
+// only for admins (exam integrity protection).
+const QUESTION_COLUMNS = `id, category, topic, difficulty, type, question,
+             code_snippet, language, marks, time_limit_sec,
+             status, source, options, test_cases, starter_templates, constraints,`;
 
 export const clearQuestionsCache = () => {
   questionsCacheAdmin = null;
   lastAdminFetch = 0;
   questionsCacheCandidate = null;
   lastCandidateFetch = 0;
+};
+
+/**
+ * Prefetch the (large) candidate question bank at startup so the first
+ * candidate request after a deploy does not pay the full remote-DB round-trip.
+ * The admin cache is left lazy because it is requested far less often.
+ */
+export const warmQuestionsCache = async () => {
+  if (!pool || !getDbStatus()) return false;
+  try {
+    const result = await pool.query(
+      `SELECT ${QUESTION_COLUMNS} tags, created_at, updated_at
+       FROM questions WHERE 1=1 ORDER BY created_at DESC`
+    );
+    questionsCacheCandidate = { success: true, data: result.rows, total: result.rowCount };
+    lastCandidateFetch = Date.now();
+    return true;
+  } catch (err) {
+    console.warn('[questions] cache warm-up notice:', err.message);
+    return false;
+  }
 };
 
 // GET /api/questions
@@ -39,9 +66,7 @@ export const getAllQuestions = async (req, res) => {
 
     // Exam Integrity Protection: Omit answer key & explanation from candidate queries
     let sql = `
-      SELECT id, category, topic, difficulty, type, question,
-             code_snippet, language, marks, time_limit_sec,
-             status, source, options, test_cases, starter_templates, constraints,
+      SELECT ${QUESTION_COLUMNS}
              ${isAdmin ? 'correct_answer, explanation,' : ''}
              tags, created_at, updated_at
       FROM questions
