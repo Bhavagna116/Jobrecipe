@@ -185,6 +185,10 @@ export const AIMockInterviewPage = () => {
     maxWarnings: 3
   });
 
+  // Configurable attempt limit status (INTERVIEW_MAX_ATTEMPTS on the backend).
+  const [interviewAttempts, setInterviewAttempts] = useState(null);
+  const [attemptLockMessage, setAttemptLockMessage] = useState('');
+
   useEffect(() => {
     fetch(apiUrl('/api/interview/settings'))
       .then((res) => res.json())
@@ -198,6 +202,21 @@ export const AIMockInterviewPage = () => {
       })
       .catch((err) => console.warn('Settings fetch notice:', err.message));
   }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('rsj_token') || localStorage.getItem('token');
+    if (!token) return;
+    let cancelled = false;
+    fetch(apiUrl('/api/interview/attempts'), {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && data?.success) setInterviewAttempts(data);
+      })
+      .catch((err) => console.warn('Interview attempt status notice:', err.message));
+    return () => { cancelled = true; };
+  }, [currentUser?.id]);
 
   // 1. Stage State: 'setup' (Picture 1) -> 'room' (Picture 2) -> Report
   const [stage, setStage] = useState('setup');
@@ -2387,17 +2406,33 @@ export const AIMockInterviewPage = () => {
             userId: currentUser?.id
           })
         });
+        const createData = await createRes.json().catch(() => ({}));
 
-        if (createRes.ok) {
-          const createData = await createRes.json();
-          if (createData.success && createData.session) {
-            currentSid = createData.session.id;
-            setSessionId(currentSid);
-            localStorage.setItem('last_interview_session_id', currentSid);
-            if (Array.isArray(createData.session.questions) && createData.session.questions.length > 0) {
-              sessionQuestions = createData.session.questions.slice(0, qCountLimit);
-              setQuestions(sessionQuestions);
-            }
+        // The backend enforces INTERVIEW_MAX_ATTEMPTS. Do not silently fall
+        // back to a local session when the candidate has used their attempts.
+        if (createRes.status === 403 && createData?.code === 'INTERVIEW_ATTEMPT_LIMIT_REACHED') {
+          const message = createData.error || 'You have used all your AI mock interview attempts.';
+          setAttemptLockMessage(message);
+          setInterviewAttempts((prev) => ({
+            ...(prev || {}),
+            success: true,
+            unlimited: false,
+            maxAttempts: createData.maxAttempts ?? prev?.maxAttempts ?? 1,
+            attemptsUsed: createData.attemptsUsed ?? prev?.attemptsUsed ?? 1,
+            attemptsRemaining: 0,
+            canStart: false
+          }));
+          if (typeof addToast === 'function') addToast(message, 'error');
+          return;
+        }
+
+        if (createRes.ok && createData.success && createData.session) {
+          currentSid = createData.session.id;
+          setSessionId(currentSid);
+          localStorage.setItem('last_interview_session_id', currentSid);
+          if (Array.isArray(createData.session.questions) && createData.session.questions.length > 0) {
+            sessionQuestions = createData.session.questions.slice(0, qCountLimit);
+            setQuestions(sessionQuestions);
           }
         }
       } catch (apiErr) {
@@ -2871,6 +2906,67 @@ export const AIMockInterviewPage = () => {
     (totalRequiredCount === 1 && completedCount >= 1)
   );
   const completionPercentage = totalRequiredCount > 0 ? Math.round((completedCount / totalRequiredCount) * 100) : 0;
+
+  // ==========================================
+  // VIEW: ATTEMPT LIMIT REACHED
+  // ==========================================
+  if (!isAdmin && interviewAttempts && interviewAttempts.canStart === false) {
+    const maxAttempts = interviewAttempts.maxAttempts;
+    const limitMessage = attemptLockMessage
+      || (maxAttempts === 1
+        ? 'You have already completed your AI mock interview. Only one attempt is allowed.'
+        : `You have used all ${maxAttempts} AI mock interview attempts.`);
+    return (
+      <div className="relative min-h-[calc(100vh-4rem)] w-full bg-[#F8FAFC] text-slate-800 p-4 sm:p-8 flex flex-col items-center justify-center">
+        <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+          <div className="absolute top-1/4 left-1/3 w-96 h-96 rounded-full bg-rose-500/5 blur-3xl" />
+          <div className="absolute bottom-1/4 right-1/3 w-96 h-96 rounded-full bg-brand-500/5 blur-3xl" />
+        </div>
+
+        <div className="relative z-10 w-full max-w-2xl bg-white border border-slate-200/90 rounded-3xl shadow-xl p-6 sm:p-10 space-y-6 text-center animate-in fade-in zoom-in-95 duration-300">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 shadow-xs">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-100/80 border border-rose-300 text-rose-900 text-xs font-bold">
+              <Lock className="w-3.5 h-3.5" />
+              <span>Attempt Limit Reached</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+              AI Mock Interview Locked
+            </h1>
+            <p className="text-sm text-slate-600 max-w-lg mx-auto leading-relaxed">
+              {limitMessage}
+            </p>
+            <p className="text-xs font-mono text-slate-500">
+              Attempts used: {interviewAttempts.attemptsUsed}
+              {maxAttempts ? ` / ${maxAttempts}` : ''}
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => navigateTo('candidate-analytics')}
+              className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-brand-600 to-cyan-600 hover:from-brand-700 hover:to-cyan-700 text-white font-bold text-sm shadow-md shadow-brand-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01]"
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>View My Results</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigateTo('assessments')}
+              className="w-full sm:w-auto px-6 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span>Go to Assessments</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ==========================================
   // VIEW: LOCKED ASSESSMENT GATE (PREREQUISITE GATEWAY)

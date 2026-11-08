@@ -11,7 +11,8 @@ import {
   analyzeFrame,
   getAdminSessions,
   getInterviewSettings,
-  updateInterviewSettings
+  updateInterviewSettings,
+  getInterviewAttempts
 } from '../controllers/interview.controller.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/rbac.js';
@@ -25,6 +26,9 @@ router.get('/settings', getInterviewSettings);
 // therefore requires authentication. Admin endpoints additionally require the
 // platform super-admin role.
 router.use(authenticateToken);
+
+// Per-candidate attempt status (used to lock the start button).
+router.get('/attempts', getInterviewAttempts);
 
 // Session endpoints
 router.post('/session', createSession);

@@ -38,6 +38,74 @@ const DEFAULT_QUESTIONS = [
 // Helper to sanitize numeric decimals to 2 decimal places
 const round2 = (num) => Math.round((Number(num) || 0) * 100) / 100;
 
+// ─── Interview attempt policy ────────────────────────────────────────────────
+// INTERVIEW_MAX_ATTEMPTS controls how many AI mock interviews a candidate may
+// complete:
+//   1 (default)      -> single attempt
+//   N                -> N attempts
+//   0 / "unlimited"  -> no limit
+// A session counts as a used attempt once it reaches one of the terminal
+// statuses below. In-progress sessions do not consume an attempt, so a browser
+// crash or refresh does not lock the candidate out.
+const COMPLETED_ATTEMPT_STATUSES = ['COMPLETED', 'TERMINATED_VIOLATION'];
+
+export const getInterviewAttemptPolicy = () => {
+  const raw = String(process.env.INTERVIEW_MAX_ATTEMPTS ?? '').trim().toLowerCase();
+  if (raw === '') return { unlimited: false, maxAttempts: 1 };
+  if (['unlimited', 'inf', 'infinite', '0'].includes(raw)) {
+    return { unlimited: true, maxAttempts: 0 };
+  }
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return { unlimited: false, maxAttempts: 1 };
+  return { unlimited: false, maxAttempts: parsed };
+};
+
+const countCompletedAttempts = async (userId) => {
+  if (!userId) return 0;
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(*)::int AS used
+       FROM interview_sessions
+       WHERE user_id = $1 AND status = ANY($2::text[])`,
+      [userId, COMPLETED_ATTEMPT_STATUSES]
+    );
+    return Number(result.rows[0]?.used) || 0;
+  } catch (err) {
+    // Offline / DB unavailable: fall back to the in-memory session store.
+    let used = 0;
+    for (const session of memorySessions.values()) {
+      if (session.userId === userId && COMPLETED_ATTEMPT_STATUSES.includes(session.status)) used += 1;
+    }
+    return used;
+  }
+};
+
+/**
+ * GET /api/interview/attempts
+ * Per-candidate attempt status used by the UI to lock the start button.
+ */
+export const getInterviewAttempts = async (req, res) => {
+  try {
+    const userId = req.user?.id || null;
+    const isPrivileged = req.user?.role === 'admin' || req.user?.role === 'college_admin';
+    const policy = getInterviewAttemptPolicy();
+    const attemptsUsed = isPrivileged ? 0 : await countCompletedAttempts(userId);
+    const canStart = isPrivileged || policy.unlimited || attemptsUsed < policy.maxAttempts;
+
+    return res.json({
+      success: true,
+      unlimited: policy.unlimited,
+      maxAttempts: policy.unlimited ? null : policy.maxAttempts,
+      attemptsUsed,
+      attemptsRemaining: policy.unlimited ? null : Math.max(0, policy.maxAttempts - attemptsUsed),
+      canStart,
+    });
+  } catch (err) {
+    console.error('Error getting interview attempt status:', err.message);
+    return res.status(500).json({ success: false, error: 'Failed to retrieve interview attempt status.' });
+  }
+};
+
 // Resilient in-memory fallback store when PostgreSQL / cloud network is offline
 const memorySessions = new Map();
 const memoryAnswers = new Map();
@@ -53,6 +121,26 @@ let lastCreatedSessionId = null;
 export const createSession = async (req, res) => {
   const { targetRole = 'Software Engineer', questions: customQuestions } = req.body;
   const userId = req.user?.id || null;
+
+  // Enforce the configurable attempt cap before creating anything. Admins and
+  // college admins bypass it so they can preview the interview.
+  const isPrivileged = req.user?.role === 'admin' || req.user?.role === 'college_admin';
+  const attemptPolicy = getInterviewAttemptPolicy();
+  if (userId && !isPrivileged && !attemptPolicy.unlimited) {
+    const attemptsUsed = await countCompletedAttempts(userId);
+    if (attemptsUsed >= attemptPolicy.maxAttempts) {
+      return res.status(403).json({
+        success: false,
+        code: 'INTERVIEW_ATTEMPT_LIMIT_REACHED',
+        error: attemptPolicy.maxAttempts === 1
+          ? 'You have already completed your AI mock interview. Only one attempt is allowed.'
+          : `You have used all ${attemptPolicy.maxAttempts} AI mock interview attempts.`,
+        attemptsUsed,
+        maxAttempts: attemptPolicy.maxAttempts,
+      });
+    }
+  }
+
   const sessionId = `isess-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   const settings = loadSettingsFromDisk();
   const qLimit = Math.max(1, Number(settings?.questionCount) || 1);
