@@ -8,6 +8,7 @@ import {
   getRoleDefaults,
   readResumeFile,
   looksLikeResume,
+  KNOWN_SKILLS,
   TARGET_ROLE_GROUPS,
   TARGET_ROLE_OPTIONS
 } from '../../utils/resumeParser';
@@ -2428,10 +2429,52 @@ export const AIMockInterviewPage = () => {
 
     if (!isSilent) {
       const wordCount = words.length;
-      commScore = Math.min(96, Math.max(45, 40 + Math.min(45, wordCount * 1.5)));
-      techScore = Math.min(96, Math.max(45, 45 + Math.min(45, wordCount * 1.3)));
+      const lowerText = recordedText.toLowerCase();
+      const hasWord = (term) => {
+        const escaped = String(term).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i').test(lowerText);
+      };
+
+      // Local fallback only. The backend response below is authoritative.
+      // Technical score starts at 0 and is earned from actual technical terms.
+      const skillHits = KNOWN_SKILLS.filter((skill) => hasWord(skill));
+      const coreKeywords = [
+        'architecture', 'api', 'database', 'system', 'algorithm', 'pipeline',
+        'deployment', 'testing', 'debugging', 'performance', 'scalable', 'security',
+        'model', 'data', 'sql', 'react', 'node', 'python', 'java', 'docker', 'cloud'
+      ];
+      const coreHits = coreKeywords.filter((kw) => hasWord(kw));
+      const technicalHits = [...new Set([...skillHits, ...coreHits])];
+      const depthHits = [
+        'because', 'trade-off', 'measured', 'result', 'for example',
+        'first', 'then', 'however', 'challenge', 'solution'
+      ].filter((kw) => hasWord(kw));
+      const fillerHits = ['um', 'uh', 'like', 'basically', 'actually', 'you know'].filter((kw) => hasWord(kw));
+      const sentenceCount = (recordedText.match(/[.!?]+/g) || []).length;
+
+      commScore = 0;
+      if (wordCount >= 8) commScore += 10;
+      if (wordCount >= 20) commScore += 10;
+      if (wordCount >= 40) commScore += 10;
+      if (wordCount >= 70) commScore += 10;
+      if (sentenceCount >= 2) commScore += 10;
+      if (sentenceCount >= 4) commScore += 5;
+      if (fillerHits.length === 0) commScore += 10;
+      commScore = Math.min(95, commScore);
+
+      techScore = 0;
+      techScore += Math.min(50, technicalHits.length * 8);
+      techScore += Math.min(20, depthHits.length * 5);
+      if (technicalHits.length > 0 && /\d/.test(lowerText)) techScore += 5;
+      if (technicalHits.length > 0 && wordCount >= 40) techScore += 5;
+      techScore = Math.min(95, techScore);
+
       calculatedScore = Math.round(techScore * 0.5 + commScore * 0.3 + conf * 0.1 + eye * 0.1);
-      quality = calculatedScore >= 80 ? 'Excellent' : 'Proficient';
+      quality = calculatedScore >= 85
+        ? 'Excellent'
+        : calculatedScore >= 70
+          ? 'Proficient'
+          : calculatedScore >= 50 ? 'Developing' : 'Needs Improvement';
     }
 
     // 3. Persist answer to backend database
@@ -2459,9 +2502,12 @@ export const AIMockInterviewPage = () => {
         if (ansRes.ok) {
           const ansData = await ansRes.json();
           if (ansData.success && ansData.answer) {
-            calculatedScore = ansData.answer.overallScore || calculatedScore;
-            techScore = ansData.answer.technicalScore || techScore;
-            commScore = ansData.answer.communicationScore || commScore;
+            const backendOverall = Number(ansData.answer.overallScore);
+            const backendTech = Number(ansData.answer.technicalScore);
+            const backendComm = Number(ansData.answer.communicationScore);
+            calculatedScore = Number.isFinite(backendOverall) ? backendOverall : calculatedScore;
+            techScore = Number.isFinite(backendTech) ? backendTech : techScore;
+            commScore = Number.isFinite(backendComm) ? backendComm : commScore;
             quality = ansData.answer.answerQuality || quality;
             answerTelemetry = {
               ...answerTelemetry,

@@ -44,6 +44,61 @@ const DEFAULT_QUESTIONS = [
 // Helper to sanitize numeric decimals to 2 decimal places
 const round2 = (num) => Math.round((Number(num) || 0) * 100) / 100;
 
+// ─── Strict, content-driven interview scoring ───────────────────────────────
+// Scores start at 0. Technical credit is only awarded for technical concepts
+// that the candidate actually says; merely speaking does not earn a baseline.
+const CORE_TECH_KEYWORDS = [
+  'algorithm', 'api', 'architecture', 'backend', 'cache', 'classification', 'cloud',
+  'component', 'concurrency', 'database', 'data structure', 'debugging', 'deployment',
+  'docker', 'frontend', 'git', 'java', 'javascript', 'kubernetes', 'machine learning',
+  'microservice', 'model', 'node', 'optimization', 'performance', 'pipeline', 'python',
+  'query', 'react', 'regression', 'rest', 'scalable', 'security', 'service', 'sql',
+  'state', 'system', 'testing', 'trade-off', 'typescript'
+];
+
+const ROLE_TECH_KEYWORDS = {
+  ml: ['machine learning', 'model', 'training', 'evaluation', 'overfitting', 'features', 'dataset', 'python', 'pandas', 'numpy', 'scikit', 'pytorch', 'tensorflow', 'classification', 'regression', 'metric', 'precision', 'recall', 'data preprocessing'],
+  data: ['sql', 'data', 'dataset', 'analysis', 'analytics', 'visualization', 'dashboard', 'etl', 'statistics', 'pandas', 'python', 'excel', 'tableau', 'power bi', 'metric', 'a/b test', 'data cleaning'],
+  frontend: ['react', 'javascript', 'typescript', 'html', 'css', 'component', 'state', 'props', 'hooks', 'redux', 'ui', 'ux', 'responsive', 'accessibility', 'rendering', 'browser', 'dom', 'api'],
+  backend: ['api', 'server', 'database', 'sql', 'postgresql', 'mysql', 'mongodb', 'authentication', 'authorization', 'cache', 'redis', 'microservice', 'scalable', 'endpoint', 'rest', 'node', 'express', 'java', 'spring', 'transaction', 'queue'],
+  devops: ['docker', 'kubernetes', 'ci/cd', 'pipeline', 'deployment', 'cloud', 'aws', 'azure', 'gcp', 'terraform', 'monitoring', 'logging', 'linux', 'bash', 'infrastructure', 'container', 'helm', 'prometheus'],
+  mobile: ['android', 'ios', 'mobile', 'react native', 'flutter', 'swift', 'kotlin', 'navigation', 'offline', 'state', 'api', 'performance', 'app store', 'play store'],
+  fullstack: ['frontend', 'backend', 'api', 'database', 'react', 'node', 'javascript', 'typescript', 'sql', 'state', 'component', 'deployment', 'authentication', 'rest']
+};
+
+const DEPTH_SIGNALS = [
+  'because', 'therefore', 'trade-off', 'tradeoff', 'measured', 'result', 'for example',
+  'for instance', 'first', 'then', 'however', 'challenge', 'solution', 'impact',
+  'latency', 'throughput', 'scale', 'percent', 'root cause'
+];
+
+const FILLER_WORDS = ['um', 'uh', 'like', 'basically', 'actually', 'you know', 'sort of', 'kind of', 'i mean'];
+
+const inferRoleCategory = (role = '') => {
+  const r = String(role || '').toLowerCase();
+  if (r.includes('ml') || r.includes('machine learning') || r.includes('ai engineer') || r.includes('artificial intelligence') || r.includes('deep learning') || r.includes('computer vision') || r.includes('nlp')) return 'ml';
+  if (r.includes('data science') || r.includes('data scientist') || r.includes('data analyst') || r.includes('analytics') || r.includes('bi analyst') || r.includes('business intelligence')) return 'data';
+  if (r.includes('frontend') || r.includes('front-end') || r.includes('react') || r.includes('ui') || r.includes('web developer')) return 'frontend';
+  if (r.includes('backend') || r.includes('back-end') || r.includes('node') || r.includes('java') || r.includes('api') || r.includes('spring') || r.includes('django')) return 'backend';
+  if (r.includes('devops') || r.includes('cloud') || r.includes('docker') || r.includes('kubernetes') || r.includes('platform') || r.includes('sre') || r.includes('reliability') || r.includes('infrastructure')) return 'devops';
+  if (r.includes('mobile') || r.includes('android') || r.includes('ios') || r.includes('flutter') || r.includes('react native')) return 'mobile';
+  return 'fullstack';
+};
+
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const hasKeyword = (text, keyword) => {
+  const kw = String(keyword || '').toLowerCase();
+  if (!kw) return false;
+  if (!/^[a-z0-9 +#./-]+$/.test(kw)) return text.includes(kw);
+  return new RegExp(`(^|[^a-z0-9])${escapeRegex(kw)}([^a-z0-9]|$)`, 'i').test(text);
+};
+
+const countKeywordHits = (text, keywords) => {
+  const lower = String(text || '').toLowerCase();
+  return [...new Set((keywords || []).filter((kw) => hasKeyword(lower, kw)))];
+};
+
 // ─── Interview attempt policy ────────────────────────────────────────────────
 // INTERVIEW_MAX_ATTEMPTS controls how many AI mock interviews a candidate may
 // complete:
@@ -471,7 +526,7 @@ export const saveQuestionAnswer = async (req, res) => {
     // Single round-trip: resolve the question's owning session user without
     // loading the entire session row (Prisma's include costs two queries here).
     const lookup = await pool.query(
-      `SELECT q.id AS question_id, s.user_id
+      `SELECT q.id AS question_id, q.category, s.user_id, s.target_role
        FROM interview_questions q
        JOIN interview_sessions s ON s.id = q.session_id
        WHERE q.id = $1`,
@@ -511,40 +566,64 @@ export const saveQuestionAnswer = async (req, res) => {
 
     if (!isAnswerEmpty) {
       speechRateVal = Math.min(220, Math.max(60, Math.round(wordCount / durationMinutes)));
-
-      // Communication score derived from length and pacing
-      commScore = 45;
-      if (wordCount >= 20) commScore += 20;
-      if (wordCount >= 50) commScore += 20;
-      if (speechRateVal >= 100 && speechRateVal <= 170) commScore += 10;
-      commScore = Math.min(98, Math.max(40, commScore));
-
-      // Technical score derived from keyword relevance to question category
-      techScore = 50;
       const lowerTranscript = transcript.toLowerCase();
-      const technicalKeywords = [
-        'architecture', 'scalable', 'database', 'system', 'api', 'component', 'performance',
-        'trade-off', 'optimization', 'query', 'testing', 'debugging', 'concurrency', 'state',
-        'algorithm', 'cache', 'security', 'framework', 'service', 'pipeline', 'deployment',
-        'model', 'python', 'sql', 'data', 'pandas', 'features', 'classification', 'metric', 'regression'
-      ];
-      matchedKeywords = technicalKeywords.filter((kw) => lowerTranscript.includes(kw));
-      techScore += Math.min(45, matchedKeywords.length * 6);
-      techScore = Math.min(98, Math.max(45, techScore));
-      relevanceScore = Math.min(95, 60 + matchedKeywords.length * 7);
+      const roleCategory = inferRoleCategory(found.target_role);
+      const roleKeywords = ROLE_TECH_KEYWORDS[roleCategory] || [];
+
+      const coreHits = countKeywordHits(lowerTranscript, CORE_TECH_KEYWORDS);
+      const roleHits = countKeywordHits(lowerTranscript, roleKeywords);
+      const coreOnlyHits = coreHits.filter((kw) => !roleHits.includes(kw));
+      const depthHits = countKeywordHits(lowerTranscript, DEPTH_SIGNALS);
+      const fillerHits = countKeywordHits(lowerTranscript, FILLER_WORDS);
+      const allTechnicalHits = [...new Set([...roleHits, ...coreHits])];
+      const sentenceCount = (transcript.match(/[.!?]+/g) || []).length;
+      const hasNumbers = /\d/.test(lowerTranscript);
+
+      // Communication is earned through length, pacing, sentence structure,
+      // and low filler. It starts at 0 — speaking alone earns nothing.
+      commScore = 0;
+      if (wordCount >= 8) commScore += 10;
+      if (wordCount >= 20) commScore += 10;
+      if (wordCount >= 40) commScore += 10;
+      if (wordCount >= 70) commScore += 10;
+      if (speechRateVal >= 100 && speechRateVal <= 170) commScore += 15;
+      if (sentenceCount >= 2) commScore += 10;
+      if (sentenceCount >= 4) commScore += 5;
+      if (fillerHits.length === 0) commScore += 10;
+      else if (fillerHits.length > Math.max(1, Math.floor(wordCount * 0.08))) commScore -= 10;
+      commScore = Math.min(95, Math.max(0, Math.round(commScore)));
+
+      // Technical is strictly content-driven. There is no baseline: an answer
+      // with no technical concepts scores 0 regardless of its length.
+      techScore = 0;
+      techScore += Math.min(45, roleHits.length * 10);
+      techScore += Math.min(20, coreOnlyHits.length * 5);
+      techScore += Math.min(20, depthHits.length * 5);
+      if (allTechnicalHits.length > 0) {
+        if (hasNumbers) techScore += 5;
+        if (wordCount >= 40) techScore += 5;
+        if (wordCount >= 80) techScore += 5;
+      }
+      techScore = Math.min(95, Math.max(0, Math.round(techScore)));
+
+      relevanceScore = allTechnicalHits.length === 0
+        ? 0
+        : Math.min(95, Math.round(coreOnlyHits.length * 8 + roleHits.length * 10 + depthHits.length * 6));
+      matchedKeywords = allTechnicalHits;
 
       overallQScore = round2(
-        techScore * 0.45 + commScore * 0.35 + confidenceVal * 0.10 + eyeContactVal * 0.10
+        techScore * 0.50 + commScore * 0.30 + confidenceVal * 0.10 + eyeContactVal * 0.10
       );
 
       if (overallQScore >= 85) answerQuality = 'Excellent';
       else if (overallQScore >= 70) answerQuality = 'Proficient';
+      else if (overallQScore >= 50) answerQuality = 'Developing';
       else answerQuality = 'Needs Improvement';
 
       aiFeedback = `Candidate spoke ${wordCount} words at ~${speechRateVal} WPM with a ${dominantEmotion.toLowerCase()} engagement state. ${
-        matchedKeywords.length > 0
-          ? `Incorporated relevant domain concepts (${matchedKeywords.slice(0, 4).join(', ')}).`
-          : 'Answer was recorded; continue elaborating with specific technical keywords.'
+        allTechnicalHits.length > 0
+          ? `Detected technical concepts: ${allTechnicalHits.slice(0, 5).join(', ')}.`
+          : 'No technical concepts were detected in this answer.'
       }`;
     }
 
@@ -745,8 +824,8 @@ export const completeInterview = async (req, res) => {
     // 3. Consolidated Overall Score (0% if no verbal or typed answers were provided!)
     const overallScore = validAnswersCount > 0
       ? round2(
-          avgTechnical * 0.45 +
-          avgComm * 0.35 +
+          avgTechnical * 0.50 +
+          avgComm * 0.30 +
           avgConfidence * 0.10 +
           avgEyeContact * 0.10
         )
