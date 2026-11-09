@@ -341,7 +341,10 @@ export const AIMockInterviewPage = () => {
   // speaking; null = they haven't started yet). Auto-advances on time-up or silence.
   const [answerSecondsLeft, setAnswerSecondsLeft] = useState(null);
   const [answerAutoNotice, setAnswerAutoNotice] = useState('');
-  const MAX_ANSWER_SECONDS = 29; // hard cap on a single spoken answer (Sarvam STT rejects clips >= 30s)
+  // Sarvam rejects clips >= 30s, so the answer window is split into two ~29s
+  // segments (29 + 29 = 58s, effectively one minute per question).
+  const SARVAM_CHUNK_SECONDS = 29;
+  const MAX_ANSWER_SECONDS = SARVAM_CHUNK_SECONDS * 2;
   const SILENCE_SECONDS = 4;     // advance once the candidate stops talking this long
 
   // Pre-load and cache browser SpeechSynthesis voices
@@ -452,7 +455,7 @@ export const AIMockInterviewPage = () => {
             analysis: violationAnalysis,
             session: {
               id: currentSid,
-              targetRole: targetRole || 'Data Scientist',
+              targetRole: targetRole || 'Software Engineer',
               startedAt: new Date(Date.now() - timerSeconds * 1000).toISOString(),
               completedAt: new Date().toISOString(),
               questions: questions
@@ -523,6 +526,15 @@ export const AIMockInterviewPage = () => {
   const sarvamPrewarmPromiseRef = useRef(null);
   const sarvamPrewarmedRef = useRef(false);
   const sarvamEpochRef = useRef(0);
+  // Sarvam rejects clips >= 30s. Long answers are recorded as consecutive
+  // ~29s segments and transcribed independently, then stitched together.
+  const sarvamSegmentTimerRef = useRef(null);
+  const sarvamRotatingRef = useRef(false);
+  const sarvamSegmentCountRef = useRef(0);
+  const sarvamSubmitRequestedRef = useRef(false);
+  const sarvamPendingTranscriptionsRef = useRef(new Set());
+  const sarvamPendingStopsRef = useRef(new Set());
+  const sarvamStopResolversRef = useRef(new WeakMap());
   const timerIntervalRef = useRef(null);
   const telemetryIntervalRef = useRef(null);
   const qStartTimeRef = useRef(Date.now());
@@ -903,9 +915,9 @@ export const AIMockInterviewPage = () => {
   };
 
   const handleLoadSampleResume = () => {
-    processResumeContent('Vishnu_ML_Resume.pdf', SAMPLE_ML_RESUME, 'Data Scientist');
-    setTargetRole('Data Scientist');
-    setRoleInput('Data Scientist');
+    processResumeContent('Vishnu_ML_Resume.pdf', SAMPLE_ML_RESUME, 'ML Engineer');
+    setTargetRole('ML Engineer');
+    setRoleInput('ML Engineer');
   };
 
   const handleApplyPastedResume = () => {
@@ -1290,7 +1302,7 @@ export const AIMockInterviewPage = () => {
     const cleanText = String(text).replace(/[*_#`]/g, '').trim();
     setCurrentSpokenSubtitle(cleanText);
 
-    // STT is batch: one MediaRecorder clip per answer, transcribed on submit.
+    // STT is batch: ~29s MediaRecorder clips, transcribed as each one closes.
     // Keep the microphone stream warm while the interviewer talks so the
     // recorder can start the instant the question ends (no activation pause).
     primeMicrophone();
@@ -1403,9 +1415,9 @@ export const AIMockInterviewPage = () => {
 
   // ── Speech-to-Text (STT) Capture Engine ──
   // Engine priority: Sarvam Saaras (best accuracy on Indian accents / Hinglish),
-  // recorded as one clip per answer and sent to the backend proxy at
-  // /api/stt/transcribe — the provider key never reaches the browser. If Sarvam
-  // is unreachable, the browser Web Speech API is used as a fallback.
+  // recorded as consecutive ~29s clips per answer and sent to the backend proxy
+  // at /api/stt/transcribe — the provider key never reaches the browser. If
+  // Sarvam is unreachable, the browser Web Speech API is used as a fallback.
   const sttEndpoint = apiUrl('/api/stt/transcribe');
 
   const sttAuthHeaders = (contentType) => {
@@ -1422,10 +1434,21 @@ export const AIMockInterviewPage = () => {
   // Resets the per-answer capture clock. The hard time cap is measured from the
   // moment recording actually starts (not first speech), so the uploaded clip can
   // never exceed Sarvam's 30s limit even if the candidate pauses before talking.
+  const clearSarvamSegmentTimer = () => {
+    if (sarvamSegmentTimerRef.current) {
+      clearTimeout(sarvamSegmentTimerRef.current);
+      sarvamSegmentTimerRef.current = null;
+    }
+  };
+
   const beginAnswerWindow = () => {
     answerStartedAtRef.current = 0;
     lastVoiceAtRef.current = 0;
     hasSpokenRef.current = false;
+    sarvamRotatingRef.current = false;
+    sarvamSegmentCountRef.current = 0;
+    sarvamSubmitRequestedRef.current = false;
+    clearSarvamSegmentTimer();
   };
   const startAnswerWindow = () => {
     beginAnswerWindow();
@@ -1459,12 +1482,15 @@ export const AIMockInterviewPage = () => {
 
   const transcribeSegment = async (blob) => {
     if (!blob || blob.size === 0) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
     try {
       const url = `${sttEndpoint}?language_code=${encodeURIComponent(sttLang || 'en-IN')}`;
       const res = await fetch(url, {
         method: 'POST',
         headers: sttAuthHeaders(blob.type || 'audio/webm'),
         body: blob,
+        signal: controller.signal,
       });
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
@@ -1478,12 +1504,34 @@ export const AIMockInterviewPage = () => {
     } catch (err) {
       console.warn('Sarvam STT notice:', err.message);
       noteSarvamFailure(0);
+    } finally {
+      clearTimeout(timeout);
     }
+  };
+
+  const stopSarvamRecorder = (recorder) => {
+    if (!recorder || recorder.state === 'inactive') return Promise.resolve();
+    const promise = new Promise((resolve) => {
+      sarvamStopResolversRef.current.set(recorder, resolve);
+      try {
+        recorder.stop();
+      } catch {
+        sarvamStopResolversRef.current.delete(recorder);
+        resolve();
+      }
+    }).finally(() => {
+      sarvamPendingStopsRef.current.delete(promise);
+    });
+    sarvamPendingStopsRef.current.add(promise);
+    return promise;
   };
 
   const stopSarvamRecording = () => {
     // Invalidate any start that is still awaiting the microphone.
     sarvamStartTokenRef.current += 1;
+    sarvamSubmitRequestedRef.current = true;
+    sarvamRotatingRef.current = false;
+    clearSarvamSegmentTimer();
     // Stop batch recording
     const recorder = sarvamRecorderRef.current;
     sarvamRecorderRef.current = null;
@@ -1507,24 +1555,24 @@ export const AIMockInterviewPage = () => {
   // Stop the active Sarvam recording and resolve once its transcript has been
   // processed, so submitting an answer never drops the candidate's last words.
   const flushSarvamRecording = () => {
+    // Prevent a rotation-triggered segment from starting after submission.
+    sarvamSubmitRequestedRef.current = true;
+    clearSarvamSegmentTimer();
+
     // Streaming: force Sarvam to finalize its buffer and wait for the final transcript.
     if (sttEngineRef.current === 'sarvam_stream') {
       return flushSarvamStreamingRecording();
     }
 
     const recorder = sarvamRecorderRef.current;
-    if (sttEngineRef.current !== 'sarvam' || !recorder || recorder.state === 'inactive') {
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => {
-      sarvamFlushResolveRef.current = resolve;
-      try {
-        recorder.stop();
-      } catch {
-        sarvamFlushResolveRef.current = null;
-        resolve();
-      }
-    });
+    const pendingBefore = Array.from(sarvamPendingStopsRef.current);
+    const activeStop = (sttEngineRef.current === 'sarvam' && recorder)
+      ? stopSarvamRecorder(recorder)
+      : Promise.resolve();
+
+    // Wait for the active segment and any segment stopped moments earlier by the
+    // 29s rotation, so the final transcript is never dropped.
+    return Promise.allSettled([activeStop, ...pendingBefore]).then(() => undefined);
   };
 
   // Return a live, audio-only stream for the recorder. Resolution order:
@@ -1570,18 +1618,17 @@ export const AIMockInterviewPage = () => {
     }
   };
 
-  const startSarvamRecording = async () => {
-    if (sttEngineRef.current === 'sarvam' && sarvamRecorderRef.current) return;
+  // Record one Sarvam-safe segment (~29s). The first segment of an answer
+  // schedules an automatic rotation; the second segment is stopped by the
+  // answer timer or manual submit, never exceeding Sarvam's 30s limit.
+  const startSarvamSegment = async ({ resetWindow = false } = {}) => {
+    if (sttEngineRef.current !== 'sarvam') return null;
     const MediaRecorder = window.MediaRecorder;
-    if (!MediaRecorder || !navigator.mediaDevices?.getUserMedia) {
-      // Recording not possible — fall back to the browser Web Speech API.
+    if (!MediaRecorder) {
       startBrowserSpeechRecognition();
-      return;
+      return null;
     }
 
-    sttEngineRef.current = 'sarvam';
-    sarvamFailureCountRef.current = 0;
-    beginAnswerWindow();
     const startToken = ++sarvamStartTokenRef.current;
     try {
       // Reuse the already-open camera/mic track. This is the fast path: no
@@ -1589,17 +1636,17 @@ export const AIMockInterviewPage = () => {
       // audio-only MediaStream: handing a video+audio stream to an audio codec
       // makes MediaRecorder.start() throw in Chromium.
       const audioStream = await ensureAudioStream();
-      if (startToken !== sarvamStartTokenRef.current || sttEngineRef.current !== 'sarvam') {
-        // The mic was paused/stopped while we were acquiring audio.
-        return;
+      if (
+        startToken !== sarvamStartTokenRef.current ||
+        sttEngineRef.current !== 'sarvam' ||
+        sarvamSubmitRequestedRef.current
+      ) {
+        return null;
       }
 
       const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
       const mimeType = preferred.find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
 
-      // One continuous recording per answer: a single Sarvam request when the
-      // answer is submitted (or the mic is paused). Avoids many short calls and
-      // the word-cut errors that short segments introduce.
       let recorder;
       try {
         recorder = mimeType ? new MediaRecorder(audioStream, { mimeType }) : new MediaRecorder(audioStream);
@@ -1612,12 +1659,39 @@ export const AIMockInterviewPage = () => {
       recorder.onstop = async () => {
         if (sarvamRecorderRef.current === recorder) sarvamRecorderRef.current = null;
         const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' });
-        await transcribeSegment(blob);
+        const rotating = sarvamRotatingRef.current;
+        sarvamRotatingRef.current = false;
+
+        // Rotate immediately at the 29s boundary so the next segment captures
+        // the following words without waiting for this transcription.
+        if (
+          rotating &&
+          sttEngineRef.current === 'sarvam' &&
+          !sarvamSubmitRequestedRef.current &&
+          answerStartedAtRef.current &&
+          (Date.now() - answerStartedAtRef.current) < MAX_ANSWER_SECONDS * 1000
+        ) {
+          startSarvamSegment({ resetWindow: false }).catch(() => {});
+        }
+
+        const transcription = transcribeSegment(blob)
+          .catch(() => {})
+          .finally(() => {
+            sarvamPendingTranscriptionsRef.current.delete(transcription);
+          });
+        sarvamPendingTranscriptionsRef.current.add(transcription);
+        await transcription;
+
         // A pending flush (submit) resolves once the final transcript is in.
         if (sarvamFlushResolveRef.current) {
           const resolveFlush = sarvamFlushResolveRef.current;
           sarvamFlushResolveRef.current = null;
           resolveFlush();
+        }
+        const resolveStop = sarvamStopResolversRef.current.get(recorder);
+        if (resolveStop) {
+          sarvamStopResolversRef.current.delete(recorder);
+          resolveStop();
         }
       };
 
@@ -1631,14 +1705,33 @@ export const AIMockInterviewPage = () => {
         setIsRecording(false);
         sttEngineRef.current = 'none';
         startBrowserSpeechRecognition();
-        return;
+        return null;
       }
+
       sarvamRecorderRef.current = recorder;
       setIsRecording(true);
       setMicError('');
-      startAnswerWindow();
+
+      if (resetWindow) startAnswerWindow();
+      sarvamSegmentCountRef.current += 1;
+
+      // Only the first segment schedules a rotation. The second segment runs
+      // until the answer timer / manual submit stops it at ~58s.
+      if (sarvamSegmentCountRef.current === 1) {
+        clearSarvamSegmentTimer();
+        sarvamSegmentTimerRef.current = setTimeout(() => {
+          sarvamSegmentTimerRef.current = null;
+          const active = sarvamRecorderRef.current;
+          if (active && active.state !== 'inactive') {
+            sarvamRotatingRef.current = true;
+            stopSarvamRecorder(active);
+          }
+        }, SARVAM_CHUNK_SECONDS * 1000);
+      }
+
+      return recorder;
     } catch (err) {
-      if (startToken !== sarvamStartTokenRef.current) return;
+      if (startToken !== sarvamStartTokenRef.current) return null;
       console.warn('Microphone unavailable for speech recognition:', err.message);
       setMicError(describeMediaError(err));
       setIsRecording(false);
@@ -1646,7 +1739,27 @@ export const AIMockInterviewPage = () => {
       // may still capture audio through a different path.
       sttEngineRef.current = 'none';
       startBrowserSpeechRecognition();
+      return null;
     }
+  };
+
+  const startSarvamRecording = async () => {
+    if (sttEngineRef.current === 'sarvam' && sarvamRecorderRef.current) return;
+    if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) {
+      // Recording not possible — fall back to the browser Web Speech API.
+      startBrowserSpeechRecognition();
+      return;
+    }
+
+    sttEngineRef.current = 'sarvam';
+    sarvamFailureCountRef.current = 0;
+    // A new answer is starting: clear the previous submit/rotation state before
+    // the segment-start guard checks it.
+    sarvamSubmitRequestedRef.current = false;
+    sarvamRotatingRef.current = false;
+    sarvamSegmentCountRef.current = 0;
+    clearSarvamSegmentTimer();
+    await startSarvamSegment({ resetWindow: true });
   };
 
   // ==========================================
@@ -2075,9 +2188,9 @@ export const AIMockInterviewPage = () => {
   };
 
   // Engine selection: Sarvam Batch STT (primary), Browser Web Speech (fallback).
-  // A single answer is recorded as one clip (max 28s, under Sarvam's 30s limit)
-  // and transcribed in one request when the candidate submits.
-  // The streaming WebSocket path is intentionally disabled.
+  // An answer is recorded as one or two ~29s clips (under Sarvam's 30s limit)
+  // and transcribed as each clip closes. The streaming WebSocket path is
+  // intentionally disabled.
   const startSpeechRecognition = () => {
     const MediaRecorder = window.MediaRecorder;
     const canRecordAudio = Boolean(MediaRecorder && navigator.mediaDevices?.getUserMedia);
@@ -2237,7 +2350,7 @@ export const AIMockInterviewPage = () => {
       analysis: generatedAnalysis,
       session: {
         id: currentSid,
-        targetRole: targetRole || 'Data Scientist',
+        targetRole: targetRole || 'Software Engineer',
         startedAt: new Date(Date.now() - timerSeconds * 1000).toISOString(),
         completedAt: new Date().toISOString(),
         questions: questions
@@ -2450,7 +2563,7 @@ export const AIMockInterviewPage = () => {
 
   // ── Per-question answer window ──
   // Starts when the candidate begins speaking (mic voice activity or first
-  // transcript). Auto-advances when the 30s cap is hit, or once they have been
+  // transcript). Auto-advances when the ~58s cap is hit, or once they have been
   // silent for a few seconds after speaking (so quick answers don't stall).
   useEffect(() => {
     if (!sessionActive || agentState !== 'LISTENING') return;
@@ -2524,7 +2637,7 @@ export const AIMockInterviewPage = () => {
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
       let currentSid = null;
-      const qCountLimit = Math.max(3, Number(adminSettings.questionCount) || questions.length || 3);
+      const qCountLimit = Math.min(4, Math.max(3, Number(adminSettings.questionCount) || 3));
       let sessionQuestions = questions.slice(0, qCountLimit);
 
       try {
@@ -2750,6 +2863,8 @@ export const AIMockInterviewPage = () => {
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
       if (telemetryIntervalRef.current) clearInterval(telemetryIntervalRef.current);
+      clearSarvamSegmentTimer();
+      stopSpeechRecognition();
       stopAudioNoiseMonitoring();
       if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       releaseMicrophone();
@@ -4144,7 +4259,7 @@ export const AIMockInterviewPage = () => {
                     </span>
                     <span className="font-semibold">
                       {answerSecondsLeft === null
-                        ? `Max ${MAX_ANSWER_SECONDS}s per answer`
+                        ? 'Max ~1 min per answer (2 × 29s chunks)'
                         : `${answerSecondsLeft}s left`}
                     </span>
                   </div>

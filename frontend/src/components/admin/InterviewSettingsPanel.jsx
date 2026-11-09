@@ -25,8 +25,7 @@ export const InterviewSettingsPanel = () => {
     objectDetection: true,
     audioProctoring: true,
     audioProctoringStrikes: false,
-    requireAssessmentFirst: false,
-    defaultRole: 'Data Scientist'
+    requireAssessmentFirst: false
   });
 
   const fetchSettings = async () => {
@@ -224,8 +223,8 @@ export const InterviewSettingsPanel = () => {
             <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
               Questions Per Session
             </label>
-            <div className="grid grid-cols-5 gap-2">
-              {[1, 3, 5, 7, 10].map((count) => (
+            <div className="grid grid-cols-2 gap-2">
+              {[3, 4].map((count) => (
                 <button
                   key={count}
                   type="button"
@@ -236,7 +235,7 @@ export const InterviewSettingsPanel = () => {
                       : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
-                  {count}
+                  {count} questions
                 </button>
               ))}
             </div>
@@ -244,13 +243,16 @@ export const InterviewSettingsPanel = () => {
               <span className="text-xs text-slate-500">Custom:</span>
               <input
                 type="number"
-                min="1"
-                max="15"
+                min="3"
+                max="4"
                 value={settings.questionCount}
-                onChange={(e) => setSettings((prev) => ({ ...prev, questionCount: Number(e.target.value) || 1 }))}
+                onChange={(e) => {
+                  const next = Number(e.target.value) || 3;
+                  setSettings((prev) => ({ ...prev, questionCount: Math.min(4, Math.max(3, next)) }));
+                }}
                 className="w-20 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 text-center"
               />
-              <span className="text-[11px] text-slate-400">(max 15)</span>
+              <span className="text-[11px] text-slate-400">(3–4 only)</span>
             </div>
           </div>
 
@@ -284,8 +286,8 @@ export const InterviewSettingsPanel = () => {
           </div>
         </div>
 
-        {/* SECTION 3: PROCTORING & DEFAULT ROLE */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* SECTION 3: PROCTORING */}
+        <div className="grid grid-cols-1 gap-6">
           <div className="p-5 rounded-2xl bg-white border border-slate-200 space-y-3">
             <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
               Proctoring Warning Strikes
@@ -307,25 +309,10 @@ export const InterviewSettingsPanel = () => {
               ))}
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              Session terminates automatically after <strong>{settings.maxWarnings} warnings</strong> (camera closed / multi-face).
+              Session terminates automatically after <strong>{settings.maxWarnings} warnings</strong> (camera closed, phone, extra person, or multi-face).
             </p>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white border border-slate-200 space-y-3">
-            <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
-              Default Target Role Preset
-            </label>
-            <input
-              type="text"
-              value={settings.defaultRole}
-              onChange={(e) => setSettings((prev) => ({ ...prev, defaultRole: e.target.value }))}
-              placeholder="e.g. Data Scientist, Software Engineer"
-              className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 font-semibold focus:outline-none focus:border-cyan-500"
-            />
-            <p className="text-[11px] text-slate-400">
-              Initial pre-fill role when candidates launch the mock interview studio.
-            </p>
-          </div>
         </div>
 
         {/* SECTION 3b: CAMERA OBJECT & AUDIO PROCTORING */}

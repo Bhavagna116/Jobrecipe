@@ -39,7 +39,7 @@ Projects:
 • Computer Vision & Image Recognition: Implemented CNN architectures with PyTorch for automated defect detection in real-time camera streams.`;
 
 export const ResumeATSSection = () => {
-  const { navigateTo, isInterviewUnlocked, role, addToast } = useApp();
+  const { navigateTo, isInterviewUnlocked, role, addToast, interviewSettings } = useApp();
 
   const [targetRole, setTargetRole] = useState(() => {
     return localStorage.getItem('rsj_selected_role') || 'Software Engineer';
@@ -153,7 +153,7 @@ export const ResumeATSSection = () => {
       return;
     }
     const currentAnalysis = analysisResult || parseResumeText(rawResumeText, targetRole);
-    const questionsToUse = generateResumeQuestions(currentAnalysis, targetRole);
+    const questionsToUse = generateResumeQuestions(currentAnalysis, targetRole).slice(0, maxPreviewQuestions);
 
     localStorage.setItem('rsj_selected_role', targetRole);
     localStorage.setItem('rsj_resume_ats_score', String(currentAnalysis.atsScore));
@@ -163,8 +163,8 @@ export const ResumeATSSection = () => {
     navigateTo('ai-mock-interview');
   };
 
-  const questionsPreview = generateResumeQuestions(analysisResult, targetRole);
-  const q1Text = questionsPreview[0]?.questionText || 'Tell me about yourself.';
+  const maxPreviewQuestions = Math.min(4, Math.max(3, Number(interviewSettings?.questionCount) || 3));
+  const questionsPreview = generateResumeQuestions(analysisResult, targetRole).slice(0, maxPreviewQuestions);
 
   return (
     <section className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-10">
@@ -316,7 +316,7 @@ export const ResumeATSSection = () => {
           <div className="p-4 rounded-xl bg-slate-950/80 border border-cyan-900/40 mb-6 space-y-3">
             <div className="flex items-center justify-between gap-2 border-b border-cyan-950 pb-2">
               <span className="text-[10px] font-mono font-bold bg-cyan-950 text-cyan-400 px-2 py-0.5 rounded border border-cyan-800/60">
-                INTERVIEW SEQUENCE (3 QUESTIONS)
+                INTERVIEW SEQUENCE ({questionsPreview.length} QUESTIONS)
               </span>
               <span className="text-xs font-semibold text-slate-400">Curated AI Interviewer Flow</span>
             </div>

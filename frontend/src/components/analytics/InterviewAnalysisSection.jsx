@@ -63,7 +63,7 @@ export default function InterviewAnalysisSection({ sessionId: initialSessionId }
               foundData = {
                 success: true,
                 analysis: analysisObj,
-                session: data.session || analysisObj.session || { targetRole: localStorage.getItem('rsj_selected_role') || 'Data Scientist' }
+                session: data.session || analysisObj.session || { targetRole: localStorage.getItem('rsj_selected_role') || 'Not specified' }
               };
             }
           }
@@ -144,7 +144,7 @@ export default function InterviewAnalysisSection({ sessionId: initialSessionId }
   }
 
   const { analysis, session } = analysisData;
-  const targetRole = session?.targetRole || localStorage.getItem('rsj_selected_role') || 'Data Scientist';
+  const targetRole = session?.targetRole || localStorage.getItem('rsj_selected_role') || 'Not specified';
 
   // Extract skills from resume or fallback to role-calibrated resume skills
   let candidateSkills = [];

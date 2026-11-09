@@ -315,83 +315,139 @@ export const parseResumeText = (rawText, targetRole = 'Software Engineer') => {
 };
 
 /**
- * Generate 5 Targeted, Moderate-Level (Basic to Mid-Level) Interview Questions.
+ * Generate up to 4 targeted interview questions.
  *
- * Requirements:
- * 1. Question 1 MUST ALWAYS BE "Tell me about yourself..." tailored to the candidate's skills & target role.
- * 2. Questions 2-5 MUST be moderate / approachable, directly addressing the candidate's target job role
- *    and resume project/skills, avoiding hyper-difficult staff-level queries.
+ * - With an uploaded resume: questions reference the candidate's detected
+ *   skills and featured project.
+ * - Without a resume: questions are generic but tailored to the selected role.
+ *
+ * The caller slices to the admin-configured count (3 or 4).
  */
 export const generateResumeQuestions = (resumeData = {}, targetRole = 'Software Engineer') => {
-  const category = getRoleCategory(targetRole);
-  const defaults = getRoleDefaults(targetRole);
-  const skills = (resumeData?.skills && resumeData.skills.length > 0)
-    ? resumeData.skills
-    : defaults.skills;
-  const project = resumeData?.featuredProject || defaults.featuredProject;
-  const topSkills = skills.slice(0, 3).join(', ');
+  const role = (targetRole || '').trim() || 'Software Engineer';
+  const category = getRoleCategory(role);
+  const defaults = getRoleDefaults(role);
+  const detected = Array.isArray(resumeData?.skills) ? resumeData.skills.filter(Boolean) : [];
+  const hasResume = Boolean(
+    Number(resumeData?.wordCount) > 0 ||
+    detected.length > 0 ||
+    (resumeData?.featuredProject && resumeData.featuredProject !== defaults.featuredProject)
+  );
 
-  const roleTechnicalQuestions = {
-    ml: [
-      `Can you walk me through your experience building machine learning pipelines, specifically for projects like "${project}", and how you evaluate model accuracy versus overfitting?`,
-      `When deploying predictive models or data processing tasks, how do you handle data preprocessing, missing features, and performance evaluation using ${topSkills || 'Python and Scikit-Learn'}?`,
-      `Describe a challenging problem you faced while training or optimizing a machine learning model, and how you diagnosed and resolved the issue.`,
-      `How do you stay up to date with new AI advancements and frameworks, and where do you see your technical focus growing?`
-    ],
-    data: [
-      `Could you describe your workflow for exploratory data analysis and insight generation, particularly in projects like "${project}"?`,
-      `How do you approach complex SQL queries, data validation, and ensuring clean datasets when working with ${topSkills || 'SQL and Python'}?`,
-      `Tell me about a time you identified an unexpected data anomaly or business trend, and how you communicated your findings to stakeholders.`,
-      `What methodologies do you use to choose the right visualization or predictive metric for a business problem?`
-    ],
-    frontend: [
-      `Could you walk me through how you architected the UI and state management in projects like "${project}"?`,
-      `How do you ensure web application performance, accessibility, and responsive rendering across devices using ${topSkills || 'React and modern CSS'}?`,
-      `Tell me about a complex frontend bug or performance bottleneck you resolved, such as unnecessary re-renders or API latency.`,
-      `How do you approach modular component architecture and maintainable code structure?`
-    ],
-    backend: [
-      `Could you describe the backend architecture of "${project}", focusing on your API design, database schema, and security considerations?`,
-      `How do you handle database query optimization, transactions, and error handling in ${topSkills || 'Node.js and PostgreSQL'}?`,
-      `Can you discuss a time when an API service failed or encountered unexpected latency, and how you resolved the root cause?`,
-      `How do you design RESTful services to scale gracefully under high concurrent load?`
-    ],
-    devops: [
-      `Could you describe how you set up automated build, test, and containerized deployment pipelines for projects like "${project}"?`,
-      `How do you monitor infrastructure health, handle failover, and manage environment configuration using ${topSkills || 'Docker and Linux'}?`,
-      `Describe an incident where a deployment pipeline broke or a service became unavailable, and how you resolved it.`,
-      `What best practices do you follow for continuous integration and container security?`
-    ],
-    fullstack: [
-      `Can you walk me through the end-to-end architecture of "${project}", explaining how the frontend and backend communicate?`,
-      `How do you approach data modeling, secure authentication, and state management when working with ${topSkills || 'React and Node.js'}?`,
-      `Describe a challenging full-stack engineering challenge you overcame, and what trade-offs you considered.`,
-      `How do you balance rapid feature delivery with code quality, testing, and system maintainability?`
-    ]
+  const skills = (hasResume && detected.length > 0) ? detected : defaults.skills;
+  const topSkills = skills.slice(0, 3);
+  const topSkillsText = topSkills.join(', ') || 'your core technical skills';
+  // Only use a project that actually came from the resume. The parser uses a
+  // role default when it cannot find one, and we must not present that as the
+  // candidate's own project.
+  const resumeProject = hasResume &&
+    resumeData?.featuredProject &&
+    resumeData.featuredProject !== defaults.featuredProject
+    ? resumeData.featuredProject
+    : '';
+  const projectRef = resumeProject ? `"${resumeProject}"` : 'a project listed on your resume';
+
+  const rolePrompts = {
+    ml: {
+      core: `Walk me through how you train and evaluate a machine learning model, from data preparation through choosing the right metric.`,
+      problem: `Describe a model that underperformed. How did you determine whether the issue was data quality, feature selection, or overfitting?`,
+      growth: `Which machine learning skills are you strengthening next, and how are you practicing them?`,
+      resume: `In ${projectRef}, how did you prepare the data, train the model, and evaluate it? Which of ${topSkillsText} did you use?`,
+    },
+    data: {
+      core: `How do you approach exploratory data analysis and decide which metrics or visualisations best answer a business question?`,
+      problem: `Tell me about a time you found a data-quality issue or unexpected trend. How did you investigate and communicate it?`,
+      growth: `Which data skills are you currently improving for a ${role} role, and what are you doing to practise them?`,
+      resume: `In ${projectRef}, what data did you analyse, which ${topSkillsText} tools did you use, and what insight or decision came out of it?`,
+    },
+    frontend: {
+      core: `How do you structure a frontend application so components, state, and API calls stay maintainable as it grows?`,
+      problem: `Describe a frontend bug or performance issue you diagnosed and fixed. What was the root cause, and what did you change?`,
+      growth: `Which frontend skills are you strengthening for a ${role} role, and how are you practising them?`,
+      resume: `In ${projectRef}, how did you structure the UI and state? Which of ${topSkillsText} did you use, and what trade-offs did you make?`,
+    },
+    backend: {
+      core: `How do you design a backend API, including database modelling, validation, and error handling?`,
+      problem: `Tell me about an API or database issue you diagnosed. How did you trace the root cause, and what fixed it?`,
+      growth: `Which backend skills are you building next for a ${role} role, and how are you practising them?`,
+      resume: `Which parts of ${projectRef} did you build on the backend? How did you handle data modelling, authentication, or scale with ${topSkillsText}?`,
+    },
+    devops: {
+      core: `How do you design a CI/CD pipeline from build and test through deployment, and how do you keep it reliable?`,
+      problem: `Describe a deployment or infrastructure incident you handled. How did you detect it, and what did you change afterwards?`,
+      growth: `Which DevOps or cloud skills are you strengthening next, and how are you practising them?`,
+      resume: `In ${projectRef}, how did you automate build, test, or deployment with ${topSkillsText}? What would you improve today?`,
+    },
+    mobile: {
+      core: `How do you structure a mobile app so navigation, state, and offline behaviour stay reliable?`,
+      problem: `Tell me about a mobile performance or device-compatibility issue you diagnosed and fixed.`,
+      growth: `Which mobile development skills are you strengthening next, and how are you practising them?`,
+      resume: `In ${projectRef}, how did you build the mobile experience? How did ${topSkillsText} help with navigation, state, or performance?`,
+    },
+    fullstack: {
+      core: `How do you connect a frontend to a backend API end to end, including data modelling, authentication, and error handling?`,
+      problem: `Describe a full-stack issue that spanned both frontend and backend. How did you isolate and fix it?`,
+      growth: `Which full-stack skills are you strengthening next, and how are you practising them?`,
+      resume: `In ${projectRef}, what did you build on the frontend and backend? How did ${topSkillsText} support the implementation?`,
+    },
   };
 
-  const pool = roleTechnicalQuestions[category] || roleTechnicalQuestions.fullstack;
+  const prompts = rolePrompts[category] || rolePrompts.fullstack;
 
-  // 3 sequential questions for the mock interview
+  if (hasResume) {
+    return [
+      {
+        id: 'q-intro-1',
+        questionNumber: 1,
+        category: 'INTRODUCTION & RESUME',
+        questionText: `Tell me about yourself, and how your experience with ${topSkillsText} led you toward ${role} roles.`,
+      },
+      {
+        id: 'q-proj-2',
+        questionNumber: 2,
+        category: 'RESUME PROJECT DEEP DIVE',
+        questionText: `Walk me through ${projectRef}. What problem did it solve, what was your specific contribution, and how was it built?`,
+      },
+      {
+        id: 'q-chal-3',
+        questionNumber: 3,
+        category: 'RESUME PROJECT CHALLENGES',
+        questionText: `What was the hardest technical or delivery challenge you faced while working on ${projectRef}, and how did you resolve it?`,
+      },
+      {
+        id: 'q-skill-4',
+        questionNumber: 4,
+        category: 'ROLE-SPECIFIC SKILLS',
+        questionText: prompts.resume,
+      },
+    ];
+  }
+
   return [
     {
       id: 'q-intro-1',
       questionNumber: 1,
-      category: 'INTRODUCTION & PROFILE',
-      questionText: 'Tell me about yourself.'
+      category: 'INTRODUCTION & ROLE FIT',
+      questionText: `Tell me about yourself and why you are interested in a ${role} role.`,
     },
     {
-      id: 'q-proj-2',
+      id: 'q-core-2',
       questionNumber: 2,
-      category: 'PROJECT EXPERIENCE & CHALLENGES',
-      questionText: 'Can you explain one of the projects you have worked on, and what major challenges or difficult situations did you face while developing it?'
+      category: 'ROLE FUNDAMENTALS',
+      questionText: prompts.core,
     },
     {
-      id: 'q-sol-3',
+      id: 'q-prob-3',
       questionNumber: 3,
-      category: 'PROBLEM SOLVING & RESOLUTION',
-      questionText: 'How did you overcome those challenges, and what approach did you take to solve the situation?'
-    }
+      category: 'PROBLEM SOLVING',
+      questionText: prompts.problem,
+    },
+    {
+      id: 'q-growth-4',
+      questionNumber: 4,
+      category: 'LEARNING & GROWTH',
+      questionText: prompts.growth,
+    },
   ];
 };
 

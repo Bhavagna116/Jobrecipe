@@ -105,7 +105,7 @@ export const AdminCandidatesPage = () => {
     if (!matched && (cand.interviewScore != null || cand.interview_score != null)) {
       matched = {
         id: cand.interviewSessionId || 'isess-verified',
-        targetRole: cand.targetRole || 'Data Scientist',
+        targetRole: cand.targetRole || 'Not specified',
         overallScore: Number(cand.interviewScore ?? cand.interview_score ?? 0),
         technicalScore: Number(cand.interviewTechnicalScore ?? cand.technicalScore ?? 0),
         communicationScore: Number(cand.interviewCommunicationScore ?? cand.communicationScore ?? 0),
@@ -124,7 +124,7 @@ export const AdminCandidatesPage = () => {
           if (parsed?.analysis) {
             matched = {
               id: parsed.session?.id || 'isess-latest',
-              targetRole: parsed.session?.targetRole || 'Data Scientist',
+              targetRole: parsed.session?.targetRole || 'Not specified',
               overallScore: Number(parsed.analysis.overallScore || 0),
               technicalScore: Number(parsed.analysis.technicalScore || 0),
               communicationScore: Number(parsed.analysis.communicationScore || 0),
@@ -256,7 +256,7 @@ export const AdminCandidatesPage = () => {
         `"${c.experienceLevel || c.experience_level || ''}"`,
         `"${c.overallScore ?? c.jobReadinessScore ?? c.job_readiness_score ?? 0}"`,
         `"${intv ? (intv.overallScore ?? 0) : 'N/A'}"`,
-        `"${intv ? (intv.targetRole || 'Data Scientist') : 'N/A'}"`,
+        `"${intv ? (intv.targetRole || 'Not specified') : 'N/A'}"`,
         `"${c.assessmentStatus || c.status || ''}"`
       ];
     });
@@ -448,7 +448,7 @@ export const AdminCandidatesPage = () => {
                             {intv.overallScore ?? 0}%
                           </span>
                           <span className="text-[10px] text-slate-500 block font-mono">
-                            {intv.targetRole || 'Data Scientist'}
+                            {intv.targetRole || 'Not specified'}
                           </span>
                         </div>
                       ) : (
@@ -739,7 +739,7 @@ export const AdminCandidatesPage = () => {
                   {candidateInterviewSession ? (
                     <>
                       <span className="text-[10px] text-slate-500 font-mono">
-                        Session ID: {candidateInterviewSession.id} • Role: {candidateInterviewSession.targetRole || 'Data Scientist'}
+                        Session ID: {candidateInterviewSession.id} • Role: {candidateInterviewSession.targetRole || 'Not specified'}
                       </span>
                       <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-emerald-100 text-emerald-800 flex items-center gap-1">
                         <CheckCircle2 className="w-3 h-3 text-emerald-600" />

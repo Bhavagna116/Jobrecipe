@@ -16,22 +16,28 @@ const sessionAccessDenied = async (req, sessionUserId) => {
   return !ok;
 };
 
-// Default curated interview questions spanning key categories (3 Questions: Intro, Project Challenges, and Solution Approach)
+// Fallback questions used only when the client does not supply its own
+// resume/role-aware set. Four well-formed questions max.
 const DEFAULT_QUESTIONS = [
   {
     questionNumber: 1,
-    category: 'INTRODUCTION & PROFILE',
-    questionText: 'Tell me about yourself.'
+    category: 'INTRODUCTION & ROLE FIT',
+    questionText: 'Tell me about yourself, and why are you interested in this role?'
   },
   {
     questionNumber: 2,
-    category: 'PROJECT EXPERIENCE & CHALLENGES',
-    questionText: 'Can you explain one of the projects you have worked on, and what major challenges or difficult situations did you face while developing it?'
+    category: 'ROLE FUNDAMENTALS',
+    questionText: 'Which core technical skills do you rely on most, and how have you applied them in a real project?'
   },
   {
     questionNumber: 3,
-    category: 'PROBLEM SOLVING & RESOLUTION',
-    questionText: 'How did you overcome those challenges, and what approach did you take to solve the situation?'
+    category: 'PROBLEM SOLVING',
+    questionText: 'Describe a difficult technical problem you faced. How did you diagnose the cause, and what did you change to resolve it?'
+  },
+  {
+    questionNumber: 4,
+    category: 'LEARNING & GROWTH',
+    questionText: 'How do you keep your skills current, and what would you like to improve next?'
   }
 ];
 
@@ -143,7 +149,7 @@ export const createSession = async (req, res) => {
 
   const sessionId = `isess-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   const settings = loadSettingsFromDisk();
-  const qLimit = Math.max(1, Number(settings?.questionCount) || 1);
+  const qLimit = Math.min(4, Math.max(3, Number(settings?.questionCount) || 3));
 
   const questionsToSeed = Array.isArray(customQuestions) && customQuestions.length > 0
     ? customQuestions.slice(0, qLimit).map((q, idx) => ({
@@ -1160,7 +1166,7 @@ export const getAdminSessions = async (req, res) => {
         userId: s.userId || s.user?.id || null,
         candidateName: s.user?.name || s.candidateName || 'Candidate',
         candidateEmail: s.user?.email || s.candidateEmail || 'candidate@readysetjob.edu',
-        targetRole: s.targetRole || 'Data Scientist',
+        targetRole: s.targetRole || 'Not specified',
         status: s.status,
         overallScore: Number(s.overallScore || s.analysis?.overallScore || 0),
         technicalScore: Number(s.technicalScore || s.analysis?.technicalScore || 0),
@@ -1192,7 +1198,10 @@ const SETTINGS_FILE_PATH = path.join(process.cwd(), 'src', 'config', 'interview_
 const loadSettingsFromDisk = () => {
   try {
     if (fs.existsSync(SETTINGS_FILE_PATH)) {
-      return JSON.parse(fs.readFileSync(SETTINGS_FILE_PATH, 'utf8'));
+      const parsed = JSON.parse(fs.readFileSync(SETTINGS_FILE_PATH, 'utf8'));
+      // Enforce the 3-4 question policy even if an older settings file exists.
+      parsed.questionCount = Math.min(4, Math.max(3, Number(parsed.questionCount) || 3));
+      return parsed;
     }
   } catch (err) {
     console.error('Error reading interview settings file:', err);
@@ -1209,7 +1218,6 @@ const loadSettingsFromDisk = () => {
     objectDetection: true,
     audioProctoring: true,
     audioProctoringStrikes: false,
-    defaultRole: 'Data Scientist',
     requireAssessmentFirst: true,
     updatedAt: new Date().toISOString()
   };
@@ -1231,7 +1239,7 @@ export const updateInterviewSettings = async (req, res) => {
     const updated = {
       ...current,
       ...req.body,
-      questionCount: req.body.questionCount ? Math.min(15, Math.max(1, Number(req.body.questionCount))) : current.questionCount,
+      questionCount: req.body.questionCount ? Math.min(4, Math.max(3, Number(req.body.questionCount))) : current.questionCount,
       maxWarnings: req.body.maxWarnings ? Math.min(10, Math.max(1, Number(req.body.maxWarnings))) : current.maxWarnings,
       isLocked: typeof req.body.isLocked === 'boolean' ? req.body.isLocked : current.isLocked,
       updatedAt: new Date().toISOString()
