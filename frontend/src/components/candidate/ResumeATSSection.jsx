@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { parseResumeText, generateResumeQuestions } from '../../utils/resumeParser';
+import {
+  parseResumeText,
+  generateResumeQuestions,
+  readResumeFile,
+  looksLikeResume
+} from '../../utils/resumeParser';
 import {
   FileText,
   Upload,
@@ -105,16 +110,14 @@ export const ResumeATSSection = () => {
   const handleFileUpload = async (file) => {
     if (!file) return;
     try {
-      let content = '';
-      if (file.type.includes('text') || file.name.endsWith('.txt')) {
-        content = await file.text();
-      } else {
-        // Fallback text representing candidate resume for binary files
-        content = `${file.name.replace(/\.[^/.]+$/, '')} candidate profile. Technical experience in ${targetRole}, building scalable applications, problem solving, modern frameworks, and system workflows.`;
+      const content = await readResumeFile(file);
+      if (!looksLikeResume(content)) {
+        addToast('This file does not look like a resume. Upload a PDF or TXT resume with skills, experience, education, or projects.', 'error');
+        return;
       }
       processResumeContent(file.name, content);
     } catch (e) {
-      processResumeContent(file.name, SAMPLE_ML_RESUME);
+      addToast(e.message || 'Could not read the resume file. Please upload a valid PDF or TXT resume.', 'error');
     }
   };
 
@@ -131,10 +134,16 @@ export const ResumeATSSection = () => {
   };
 
   const handleApplyPastedResume = () => {
-    if (pastedText.trim()) {
-      processResumeContent('Pasted_Resume_Profile.txt', pastedText);
-      setShowPasteModal(false);
+    if (!pastedText.trim()) {
+      addToast('Paste your resume text first.', 'warning');
+      return;
     }
+    if (!looksLikeResume(pastedText)) {
+      addToast('The pasted text does not look like a resume. Include skills, experience, education, or projects.', 'error');
+      return;
+    }
+    processResumeContent('Pasted_Resume_Profile.txt', pastedText);
+    setShowPasteModal(false);
   };
 
   const handleLaunchInterview = () => {
@@ -178,10 +187,14 @@ export const ResumeATSSection = () => {
         >
           <input
             type="file"
-            accept=".pdf,.docx,.doc,.txt"
+            accept=".pdf,.txt"
             id="resume-file-input"
             className="hidden"
-            onChange={(e) => handleFileUpload(e.target.files?.[0])}
+            onChange={(e) => {
+              const selected = e.target.files?.[0];
+              e.target.value = '';
+              handleFileUpload(selected);
+            }}
           />
 
           {/* Document Icon (Soft Lavender / Violet Tint matching Image 1) */}

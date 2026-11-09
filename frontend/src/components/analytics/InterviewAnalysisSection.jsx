@@ -253,8 +253,8 @@ export default function InterviewAnalysisSection({ sessionId: initialSessionId }
     ? Math.round(questions.reduce((acc, q) => acc + (q.technicalScore || 0), 0) / questions.length)
     : 0;
 
-  const conf = hasSpoken ? Number(analysis.confidenceScore || 80) : 0;
-  const eye = hasSpoken ? Number(analysis.eyeContactScore || 85) : 0;
+  const conf = hasSpoken ? Number(analysis.confidenceScore || 0) : 0;
+  const eye = hasSpoken ? Number(analysis.eyeContactScore || 0) : 0;
 
   return (
     <section id="interview-analysis" className="space-y-8">
@@ -346,8 +346,8 @@ export default function InterviewAnalysisSection({ sessionId: initialSessionId }
             <Smile className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Emotion</span>
-            <span className="text-base font-black text-slate-900 truncate max-w-[100px] block">{hasSpoken ? (analysis.dominantEmotion || 'Confident') : 'Neutral'}</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Engagement</span>
+            <span className="text-base font-black text-slate-900 truncate max-w-[100px] block">{hasSpoken ? (analysis.dominantEmotion || 'Neutral') : 'Neutral'}</span>
             <span className="text-[10px] font-semibold text-purple-600 block">{hasSpoken ? 'Active' : 'Idle'}</span>
           </div>
         </div>

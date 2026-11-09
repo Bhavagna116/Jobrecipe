@@ -121,29 +121,111 @@ export const getRoleDefaults = (role = 'Software Engineer') => {
   }
 };
 
+export const RESUME_MAX_BYTES = 20 * 1024 * 1024;
+export const RESUME_ALLOWED_EXTENSIONS = ['.pdf', '.txt'];
+
+export const getResumeExtension = (fileName = '') => {
+  const name = String(fileName || '');
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 ? name.slice(dot).toLowerCase() : '';
+};
+
+/**
+ * Validate a candidate resume file before reading it.
+ * Returns { ok: true, extension } or { ok: false, error }.
+ */
+export const validateResumeFile = (file) => {
+  if (!file) return { ok: false, error: 'No file selected.' };
+
+  const extension = getResumeExtension(file.name);
+  if (!RESUME_ALLOWED_EXTENSIONS.includes(extension)) {
+    return { ok: false, error: 'Only PDF and TXT resumes are supported.' };
+  }
+  if (!file.size || Number(file.size) <= 0) {
+    return { ok: false, error: 'The selected file is empty.' };
+  }
+  if (Number(file.size) > RESUME_MAX_BYTES) {
+    return { ok: false, error: 'Resume must be 20 MB or smaller.' };
+  }
+
+  return { ok: true, extension };
+};
+
+/**
+ * Heuristic check that extracted text actually looks like a resume rather than
+ * a random document, image dump, or arbitrary file renamed to .txt/.pdf.
+ */
+export const looksLikeResume = (rawText = '') => {
+  const text = String(rawText || '').trim();
+  if (!text) return false;
+
+  const lower = text.toLowerCase();
+  const letters = (text.match(/[a-z]/gi) || []).length;
+  if (text.length < 120 || letters / text.length < 0.35) return false;
+
+  let signals = 0;
+  if (/\b(summary|objective|profile|about me)\b/.test(lower)) signals += 1;
+  if (/\b(experience|employment|work history|internship|professional experience)\b/.test(lower)) signals += 1;
+  if (/\b(education|bachelor|master|degree|university|college|b\.?tech|b\.?e\b|bsc|msc|mba)\b/.test(lower)) signals += 1;
+  if (/\b(skills?|technologies|tech stack|technical proficienc|competenc)\b/.test(lower)) signals += 1;
+  if (/\b(projects?|portfolio|achievements?)\b/.test(lower)) signals += 1;
+  if (/[\w.+-]+@[\w-]+\.[\w.-]+/.test(lower) || /(\+?\d[\d\s-]{8,}\d)/.test(lower) || /\blinkedin\b/.test(lower)) signals += 1;
+
+  return signals >= 3;
+};
+
+const scoreResumeContent = (text, wordCount) => {
+  const lower = text.toLowerCase();
+  let score = 0;
+
+  if (wordCount >= 120) score += 30;
+  else if (wordCount >= 60) score += 22;
+  else if (wordCount >= 30) score += 12;
+  else return 0;
+
+  if (/[\w.+-]+@[\w-]+\.[\w.-]+/.test(lower) || /(\+?\d[\d\s-]{8,}\d)/.test(lower) || /\blinkedin\b/.test(lower)) score += 12;
+  if (/\b(experience|employment|work history|internship)\b/.test(lower)) score += 12;
+  if (/\b(education|bachelor|master|degree|university|college)\b/.test(lower)) score += 12;
+  if (/\b(skills?|technologies|tech stack|technical proficienc)\b/.test(lower)) score += 14;
+  if (/\b(projects?|portfolio|achievements?)\b/.test(lower)) score += 20;
+
+  return Math.min(100, score);
+};
+
+const skillInList = (skill, candidateLower) =>
+  candidateLower.some(c => c === skill.toLowerCase() || c.includes(skill.toLowerCase()) || skill.toLowerCase().includes(c));
+
 /**
  * Analyzes candidate skills against the target role's core & advanced skill benchmark.
- * Returns matched skills, missing skills (skills to cover), and calculated ATS score.
+ * Returns matched skills, missing skills (skills to cover), and a skill-based score.
+ *
+ * The score is deliberately content-driven: an empty or skill-less resume scores 0,
+ * never a fixed floor. There is no hardcoded minimum.
  */
 export const analyzeRoleSkillGaps = (candidateSkills = [], targetRole = 'Software Engineer') => {
   const category = getRoleCategory(targetRole);
   const benchmark = ROLE_BENCHMARK_SKILLS[category] || ROLE_BENCHMARK_SKILLS.fullstack;
-  const candidateLower = (candidateSkills || []).map(s => s.toLowerCase());
+  const candidateLower = (candidateSkills || []).map(s => String(s).toLowerCase());
 
-  const matchedCore = benchmark.coreSkills.filter(s =>
-    candidateLower.some(c => c === s.toLowerCase() || c.includes(s.toLowerCase()) || s.toLowerCase().includes(c))
+  const matchedCore = benchmark.coreSkills.filter(s => skillInList(s, candidateLower));
+  const missingCore = benchmark.coreSkills.filter(s => !skillInList(s, candidateLower));
+  const matchedAdvanced = benchmark.advancedSkills.filter(s => skillInList(s, candidateLower));
+  const recommendedAdvanced = benchmark.advancedSkills
+    .filter(s => !skillInList(s, candidateLower))
+    .slice(0, 4);
+
+  const coreRatio = benchmark.coreSkills.length > 0
+    ? matchedCore.length / benchmark.coreSkills.length
+    : 0;
+  const advancedRatio = benchmark.advancedSkills.length > 0
+    ? matchedAdvanced.length / benchmark.advancedSkills.length
+    : 0;
+  const breadthRatio = Math.min(1, candidateLower.length / 10);
+
+  // Weighted skill score (0-100). No floor: no detected skills => 0.
+  const atsScore = Math.round(
+    (coreRatio * 0.7 + advancedRatio * 0.15 + breadthRatio * 0.15) * 100
   );
-
-  const missingCore = benchmark.coreSkills.filter(s =>
-    !candidateLower.some(c => c === s.toLowerCase() || c.includes(s.toLowerCase()) || s.toLowerCase().includes(c))
-  );
-
-  const recommendedAdvanced = benchmark.advancedSkills.filter(s =>
-    !candidateLower.some(c => c === s.toLowerCase() || c.includes(s.toLowerCase()) || s.toLowerCase().includes(c))
-  ).slice(0, 4);
-
-  const matchRatio = benchmark.coreSkills.length > 0 ? (matchedCore.length / benchmark.coreSkills.length) : 0.8;
-  const atsScore = Math.min(97, Math.max(68, Math.round(65 + (matchRatio * 28) + (candidateSkills.length > 4 ? 4 : 1))));
 
   return {
     matchedCore,
@@ -151,7 +233,7 @@ export const analyzeRoleSkillGaps = (candidateSkills = [], targetRole = 'Softwar
     skillsToCover: [...missingCore, ...recommendedAdvanced.slice(0, 2)],
     recommendedAdvanced,
     atsScore,
-    matchPercentage: Math.round(matchRatio * 100)
+    matchPercentage: Math.round(coreRatio * 100)
   };
 };
 
@@ -211,9 +293,15 @@ export const parseResumeText = (rawText, targetRole = 'Software Engineer') => {
     ? projectLines[0].replace(/^[•\-\*\d\.\s]+/, '').trim()
     : roleDefaults.featuredProject;
 
-  // 4. Calculate Role-Aware Skill Gap & ATS Score
+  // 4. Calculate Role-Aware Skill Gap & ATS Score.
+  // The final score blends detected skill match with actual resume structure
+  // (summary, experience, education, projects, contact details). It is fully
+  // content-driven and has no hardcoded minimum.
   const skillGaps = analyzeRoleSkillGaps(detectedSkills, targetRole);
-  const atsScore = skillGaps.atsScore;
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const contentScore = scoreResumeContent(text, wordCount);
+  const atsScore = Math.round(skillGaps.atsScore * 0.8 + contentScore * 0.2);
+  skillGaps.atsScore = atsScore;
 
   return {
     candidateName,
@@ -222,7 +310,7 @@ export const parseResumeText = (rawText, targetRole = 'Software Engineer') => {
     featuredProject,
     targetRole,
     skillGaps,
-    wordCount: text.split(/\s+/).filter(Boolean).length
+    wordCount
   };
 };
 
@@ -336,4 +424,36 @@ export const extractTextFromPdf = async (arrayBuffer) => {
     console.warn('PDF extraction notice:', err);
   }
   return '';
+};
+
+/**
+ * Validate and read a resume file into plain text. Throws a user-facing error
+ * when the file is the wrong type, too large, corrupt, or has no readable text.
+ */
+export const readResumeFile = async (file) => {
+  const validation = validateResumeFile(file);
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+
+  if (validation.extension === '.pdf') {
+    const buffer = await file.arrayBuffer();
+    const headerBytes = new Uint8Array(buffer.slice(0, 5));
+    const header = String.fromCharCode(...headerBytes);
+    if (header !== '%PDF-') {
+      throw new Error('The file is not a valid PDF. Please upload a real PDF or TXT resume.');
+    }
+
+    const text = await extractTextFromPdf(buffer);
+    if (!text || text.trim().length < 40) {
+      throw new Error('No readable text found in this PDF. Scanned/image-only PDFs are not supported.');
+    }
+    return text;
+  }
+
+  const text = await file.text();
+  if (!text || !text.trim()) {
+    throw new Error('The selected text file is empty.');
+  }
+  return text;
 };

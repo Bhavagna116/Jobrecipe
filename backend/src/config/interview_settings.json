@@ -7,6 +7,9 @@
   "strictProctoring": true,
   "cameraRequired": true,
   "multiFaceDetection": true,
+  "objectDetection": true,
+  "audioProctoring": false,
+  "audioProctoringStrikes": false,
   "defaultRole": "Data Scientist",
   "updatedAt": "2026-10-11T10:14:18.847Z",
   "requireAssessmentFirst": false

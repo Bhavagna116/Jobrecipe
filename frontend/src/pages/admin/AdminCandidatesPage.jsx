@@ -128,9 +128,9 @@ export const AdminCandidatesPage = () => {
               overallScore: Number(parsed.analysis.overallScore || 0),
               technicalScore: Number(parsed.analysis.technicalScore || 0),
               communicationScore: Number(parsed.analysis.communicationScore || 0),
-              eyeContactScore: Number(parsed.analysis.eyeContactScore || 85),
-              confidenceScore: Number(parsed.analysis.confidenceScore || 80),
-              dominantEmotion: parsed.analysis.dominantEmotion || 'Confident',
+              eyeContactScore: Number(parsed.analysis.eyeContactScore || 0),
+              confidenceScore: Number(parsed.analysis.confidenceScore || 0),
+              dominantEmotion: parsed.analysis.dominantEmotion || 'Neutral',
               status: 'COMPLETED'
             };
           }
@@ -838,7 +838,7 @@ export const AdminCandidatesPage = () => {
                     <div className="p-2.5 bg-white rounded-xl border border-slate-200 shadow-2xs">
                       <div className="flex items-center justify-between mb-1">
                         <Smile className="w-3.5 h-3.5 text-purple-600" />
-                        <span className="text-[9px] font-bold text-slate-400 uppercase">Emotion</span>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase">Engagement</span>
                       </div>
                       <div className="text-base font-black text-slate-900 truncate">
                         {candidateInterviewSession.dominantEmotion || 'Neutral'}

@@ -1,4 +1,4 @@
-import { FilesetResolver, FaceLandmarker } from '@mediapipe/tasks-vision';
+import { FilesetResolver, FaceLandmarker, ObjectDetector } from '@mediapipe/tasks-vision';
 
 // Configurable proctoring thresholds (lenient by design — avoid false auto-submits)
 export const YAW_THRESHOLD = 35;    // Max degrees turn left/right before 'looking_away'
@@ -6,6 +6,11 @@ export const PITCH_THRESHOLD = 30;  // Max degrees tilt up/down before 'looking_
 export const GRACE_PERIOD_MS = 3000; // Continuous violation duration before firing strike (3 seconds)
 export const DETECTION_INTERVAL_MS = 500; // Interval between frames (0.5 seconds)
 export const MAX_ALLOWED_STRIKES = 5; // 5 warnings before auto-submission
+
+// Object-detection thresholds (MediaPipe EfficientDet-Lite0)
+export const PHONE_CONFIDENCE_THRESHOLD = 0.35;
+export const PERSON_CONFIDENCE_THRESHOLD = 0.35;
+export const PROHIBITED_OBJECT_CATEGORIES = ['cell phone', 'mobile phone', 'phone'];
 
 // Eye gaze diversion thresholds (normalized 0.0 - 1.0 blendshape scores)
 export const EYE_LOOK_DOWN_THRESHOLD = 0.70; // Looking down at phone, notes, or lap
@@ -57,6 +62,88 @@ export const getFaceLandmarker = async () => {
   })();
 
   return initPromise;
+};
+
+let objectDetectorInstance = null;
+let objectInitPromise = null;
+
+/**
+ * Singleton factory for MediaPipe ObjectDetector (EfficientDet-Lite0).
+ * Detects people/bodies and prohibited objects such as cell phones even when
+ * the person's face is not visible or is turned away.
+ */
+export const getObjectDetector = async () => {
+  if (objectDetectorInstance) return objectDetectorInstance;
+  if (objectInitPromise) return objectInitPromise;
+
+  const wasmCdn = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm';
+  const modelAssetPath = 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite';
+
+  const create = async (delegate) => {
+    const filesetResolver = await FilesetResolver.forVisionTasks(wasmCdn);
+    return ObjectDetector.createFromOptions(filesetResolver, {
+      baseOptions: { modelAssetPath, delegate },
+      runningMode: 'VIDEO',
+      scoreThreshold: 0.25,
+      maxResults: 10,
+    });
+  };
+
+  objectInitPromise = (async () => {
+    try {
+      objectDetectorInstance = await create('GPU');
+    } catch (gpuErr) {
+      console.warn('MediaPipe ObjectDetector GPU init failed, falling back to CPU:', gpuErr);
+      objectDetectorInstance = await create('CPU');
+    }
+    return objectDetectorInstance;
+  })();
+
+  return objectInitPromise;
+};
+
+/**
+ * Classify object detections into phones, people and other objects.
+ * A person body counts even when no face is detected, which closes the
+ * "second person with hidden face" gap.
+ */
+export const classifyObjects = (results) => {
+  const detections = Array.isArray(results?.detections) ? results.detections : [];
+  const phones = [];
+  const persons = [];
+  const otherObjects = [];
+
+  for (const det of detections) {
+    const categories = Array.isArray(det.categories) ? det.categories : [];
+    if (categories.length === 0) continue;
+
+    const best = categories.reduce(
+      (top, cur) => (Number(cur.score) > Number(top.score) ? cur : top),
+      categories[0]
+    );
+    const name = String(best.categoryName || '').toLowerCase();
+    const item = {
+      category: name,
+      score: Number(best.score) || 0,
+      boundingBox: det.boundingBox || null,
+    };
+
+    if (PROHIBITED_OBJECT_CATEGORIES.includes(name)) phones.push(item);
+    else if (name === 'person') persons.push(item);
+    else otherObjects.push(item);
+  }
+
+  const visiblePhones = phones.filter(p => p.score >= PHONE_CONFIDENCE_THRESHOLD);
+  const visiblePersons = persons.filter(p => p.score >= PERSON_CONFIDENCE_THRESHOLD);
+
+  return {
+    phoneDetected: visiblePhones.length > 0,
+    phoneScore: visiblePhones[0]?.score || 0,
+    phones: visiblePhones,
+    personCount: visiblePersons.length,
+    persons: visiblePersons,
+    otherObjects,
+  };
 };
 
 /**

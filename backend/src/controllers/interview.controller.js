@@ -496,9 +496,11 @@ export const saveQuestionAnswer = async (req, res) => {
     let matchedKeywords = [];
     const durationMinutes = Math.max(duration / 60, 0.2);
 
-    const eyeContactVal = isAnswerEmpty ? 0 : round2(telemetry.eyeContact ?? 85);
-    const attentionVal = isAnswerEmpty ? 0 : round2(telemetry.attention ?? 88);
-    const confidenceVal = isAnswerEmpty ? 0 : round2(telemetry.confidence ?? 84);
+    // Metrics must come from the client's measured telemetry. If telemetry is
+    // missing we score 0 rather than inventing a favourable baseline.
+    const eyeContactVal = isAnswerEmpty ? 0 : round2(telemetry.eyeContact ?? 0);
+    const attentionVal = isAnswerEmpty ? 0 : round2(telemetry.attention ?? 0);
+    const confidenceVal = isAnswerEmpty ? 0 : round2(telemetry.confidence ?? 0);
     const dominantEmotion = isAnswerEmpty ? 'Neutral' : (telemetry.emotion || 'Neutral');
 
     if (!isAnswerEmpty) {
@@ -533,7 +535,7 @@ export const saveQuestionAnswer = async (req, res) => {
       else if (overallQScore >= 70) answerQuality = 'Proficient';
       else answerQuality = 'Needs Improvement';
 
-      aiFeedback = `Candidate spoke ${wordCount} words at ~${speechRateVal} WPM with ${dominantEmotion.toLowerCase()} delivery. ${
+      aiFeedback = `Candidate spoke ${wordCount} words at ~${speechRateVal} WPM with a ${dominantEmotion.toLowerCase()} engagement state. ${
         matchedKeywords.length > 0
           ? `Incorporated relevant domain concepts (${matchedKeywords.slice(0, 4).join(', ')}).`
           : 'Answer was recorded; continue elaborating with specific technical keywords.'
@@ -657,10 +659,10 @@ export const completeInterview = async (req, res) => {
     const questions = session.questions || [];
     const answers = questions.flatMap((q) => q.answers || []);
 
-    // 1. Calculate Real Telemetry Averages
-    let avgEyeContact = 85;
-    let avgAttention = 85;
-    let avgConfidence = 80;
+    // 1. Calculate Real Telemetry Averages (0 when no telemetry exists)
+    let avgEyeContact = 0;
+    let avgAttention = 0;
+    let avgConfidence = 0;
     const emotionCounts = {};
 
     if (telemetry.length > 0) {
@@ -678,8 +680,8 @@ export const completeInterview = async (req, res) => {
       });
     }
 
-    // Dominant emotion
-    let dominantEmotion = 'Confident';
+    // Dominant observed state (not a fabricated emotional label)
+    let dominantEmotion = 'Neutral';
     let maxEmotionCount = 0;
     Object.entries(emotionCounts).forEach(([em, count]) => {
       if (count > maxEmotionCount) {
@@ -688,10 +690,10 @@ export const completeInterview = async (req, res) => {
       }
     });
 
-    // Emotion stability (% of frames matching dominant emotion)
+    // State stability (% of frames matching dominant state)
     const emotionStability = telemetry.length > 0
       ? round2((maxEmotionCount / telemetry.length) * 100)
-      : 82;
+      : 0;
 
     // 2. Calculate Answer Averages (Strict 0 when candidate was silent / gave no answers)
     let avgTechnical = 0;
@@ -715,6 +717,23 @@ export const completeInterview = async (req, res) => {
         avgComm = round2(sumComm / answers.length);
         avgSpeechRate = round2(sumRate / validAnswersCount);
       }
+    }
+
+    // If no batch telemetry was uploaded, derive camera metrics from the
+    // per-answer telemetry that the client actually measured. This keeps the
+    // report consistent with the answer-level scores instead of defaulting to
+    // a fabricated baseline.
+    if (telemetry.length === 0 && answers.length > 0) {
+      const sumEye = answers.reduce((acc, a) => acc + Number(a.eyeContactScore || 0), 0);
+      const sumAtt = answers.reduce((acc, a) => acc + Number(a.attentionScore || 0), 0);
+      const sumConf = answers.reduce((acc, a) => acc + Number(a.confidenceScore || 0), 0);
+
+      avgEyeContact = round2(sumEye / answers.length);
+      avgAttention = round2(sumAtt / answers.length);
+      avgConfidence = round2(sumConf / answers.length);
+      dominantEmotion = validAnswersCount > 0
+        ? (avgAttention >= 70 ? 'Focused' : avgAttention >= 40 ? 'Neutral' : 'Distracted')
+        : 'Neutral';
     }
 
     // 3. Consolidated Overall Score (0% if no verbal or typed answers were provided!)
@@ -743,8 +762,8 @@ export const completeInterview = async (req, res) => {
         overallScore: hasAnswer ? Number(ans.overallScore || 0) : 0,
         technicalScore: hasAnswer ? Number(ans.technicalScore || 0) : 0,
         communicationScore: hasAnswer ? Number(ans.communicationScore || 0) : 0,
-        confidenceScore: Number(ans?.confidenceScore || avgConfidence),
-        eyeContactScore: Number(ans?.eyeContactScore || avgEyeContact),
+        confidenceScore: Number(ans?.confidenceScore ?? avgConfidence),
+        eyeContactScore: Number(ans?.eyeContactScore ?? avgEyeContact),
         dominantEmotion: ans?.dominantEmotion || dominantEmotion,
         aiFeedback: hasAnswer
           ? (ans.aiFeedback || 'Answer recorded and analyzed.')
@@ -757,11 +776,11 @@ export const completeInterview = async (req, res) => {
     const weaknesses = [];
     const recommendations = [];
 
-    if (avgEyeContact >= 80) strengths.push('Maintained steady eye contact with the camera throughout responses.');
-    else weaknesses.push('Gaze wandered away from center camera frequently during technical explanations.');
+    if (avgEyeContact >= 70) strengths.push('Maintained steady eye contact with the camera throughout responses.');
+    else weaknesses.push('Gaze wandered away from the camera during responses.');
 
-    if (avgConfidence >= 80) strengths.push('Exhibited composed, confident facial expressions and poised body posture.');
-    else weaknesses.push('Facial stability indicated occasional nervousness or hesitation.');
+    if (avgConfidence >= 70) strengths.push('Remained consistently visible and centered in the camera frame.');
+    else weaknesses.push('Camera presence was intermittent or the candidate was frequently outside the frame.');
 
     if (avgTechnical >= 75) strengths.push('Articulated core engineering fundamentals and architectural trade-offs clearly.');
     else weaknesses.push('Responses lacked specific architectural terminology and measurable metrics.');
@@ -777,7 +796,7 @@ export const completeInterview = async (req, res) => {
     recommendations.push('Maintain direct camera eye-contact during introductory thesis sentences.');
     recommendations.push('Elaborate on production failure modes, rollback mechanisms, and monitoring dashboards.');
 
-    const aiFeedback = `Candidate completed comprehensive mock interview for ${session.targetRole || 'Software Engineer'}. Demonstrates overall readiness score of ${overallScore}% with ${dominantEmotion.toLowerCase()} demeanour and ${avgTechnical}% technical depth.`;
+    const aiFeedback = `Candidate completed a mock interview for ${session.targetRole || 'Software Engineer'}. Overall readiness score ${overallScore}%, ${dominantEmotion.toLowerCase()} engagement state, and ${avgTechnical}% technical depth.`;
 
     const analysisId = `ianal-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
@@ -914,24 +933,44 @@ export const completeInterview = async (req, res) => {
     const avgScore = hasSpoken ? Math.round(answers.reduce((acc, a) => acc + (a.overallScore || 0), 0) / (answers.length || 1)) : 0;
     const avgTech = hasSpoken ? Math.round(answers.reduce((acc, a) => acc + (a.technicalScore || 0), 0) / (answers.length || 1)) : 0;
     const avgComm = hasSpoken ? Math.round(answers.reduce((acc, a) => acc + (a.communicationScore || 0), 0) / (answers.length || 1)) : 0;
+    // Use only telemetry that was actually recorded for this session.
+    const recordedTelemetry = Array.isArray(session.telemetry) ? session.telemetry : [];
+    const telemetryAvg = (key) => recordedTelemetry.length
+      ? Math.round(recordedTelemetry.reduce((acc, t) => acc + Number(t?.[key] || 0), 0) / recordedTelemetry.length)
+      : 0;
+    const avgEye = telemetryAvg('eyeContact');
+    const avgAtt = telemetryAvg('attention');
+    const avgConf = telemetryAvg('confidence');
+
+    const measuredStrengths = [];
+    if (avgEye >= 70) measuredStrengths.push('Sustained eye contact with the camera');
+    if (avgTech >= 65) measuredStrengths.push('Structured technical explanations');
+    if (avgComm >= 65) measuredStrengths.push('Clear verbal communication');
+    if (measuredStrengths.length === 0) measuredStrengths.push('Completed the interview session');
+
+    const measuredWeaknesses = [];
+    if (avgEye < 60) measuredWeaknesses.push('Frequent gaze diversion or distraction detected');
+    if (avgTech < 60) measuredWeaknesses.push('Technical depth needs more concrete examples');
+    if (avgComm < 60) measuredWeaknesses.push('Responses were brief; expand with more detail');
+    if (!measuredWeaknesses.length) measuredWeaknesses.push('Continue practicing timed interview answers');
 
     const fallbackAnalysis = {
       id: `ana-${Date.now()}`,
       sessionId,
       overallScore: avgScore,
       communicationScore: avgComm,
-      confidenceScore: hasSpoken ? 84 : 0,
-      eyeContactScore: hasSpoken ? 88 : 0,
-      attentionScore: hasSpoken ? 88 : 0,
-      expressionScore: hasSpoken ? 80 : 0,
+      confidenceScore: avgConf,
+      eyeContactScore: avgEye,
+      attentionScore: avgAtt,
+      expressionScore: 0,
       technicalScore: avgTech,
-      speechScore: hasSpoken ? 82 : 0,
-      dominantEmotion: hasSpoken ? 'Confident' : 'Neutral',
-      emotionStability: 85,
-      strengths: ['Clear articulate communication', 'Good conceptual structure'],
-      weaknesses: ['Add concrete edge-case metrics'],
+      speechScore: 0,
+      dominantEmotion: hasSpoken ? (avgAtt >= 70 ? 'Focused' : avgAtt >= 40 ? 'Neutral' : 'Distracted') : 'Neutral',
+      emotionStability: 0,
+      strengths: measuredStrengths,
+      weaknesses: measuredWeaknesses,
       recommendations: ['Practice timed mock answers'],
-      aiFeedback: hasSpoken ? 'Solid performance across key competencies.' : 'No verbal answers detected.',
+      aiFeedback: hasSpoken ? 'Interview completed using recorded answers and measured camera telemetry.' : 'No verbal answers detected.',
       questionBreakdown: questions.map((q, idx) => {
         const ans = (q.answers || [])[0];
         return {
@@ -1046,14 +1085,11 @@ export const analyzeFrame = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Image data required.' });
     }
 
-    return res.json({
-      success: true,
-      faceDetected: true,
-      eyeContact: 92,
-      emotion: 'Focused',
-      attention: 90,
-      confidence: 88,
-      phoneDetected: false
+    // This route has no access to a vision model, so it must not fabricate a
+    // score. Real frame analysis runs client-side via MediaPipe.
+    return res.status(501).json({
+      success: false,
+      error: 'Frame analysis is performed client-side. This endpoint does not score frames.'
     });
   } catch (error) {
     console.error('Frame analysis error:', error);
@@ -1129,8 +1165,8 @@ export const getAdminSessions = async (req, res) => {
         overallScore: Number(s.overallScore || s.analysis?.overallScore || 0),
         technicalScore: Number(s.technicalScore || s.analysis?.technicalScore || 0),
         communicationScore: Number(s.communicationScore || s.analysis?.communicationScore || 0),
-        eyeContactScore: Number(s.eyeContactScore || s.analysis?.eyeContactScore || 85),
-        confidenceScore: Number(s.confidenceScore || s.analysis?.confidenceScore || 80),
+        eyeContactScore: Number(s.eyeContactScore || s.analysis?.eyeContactScore || 0),
+        confidenceScore: Number(s.confidenceScore || s.analysis?.confidenceScore || 0),
         dominantEmotion: s.analysis?.dominantEmotion || s.dominantEmotion || 'Neutral',
         duration: s.duration || 0,
         startedAt: s.startedAt,
@@ -1170,6 +1206,9 @@ const loadSettingsFromDisk = () => {
     strictProctoring: true,
     cameraRequired: true,
     multiFaceDetection: true,
+    objectDetection: true,
+    audioProctoring: false,
+    audioProctoringStrikes: false,
     defaultRole: 'Data Scientist',
     requireAssessmentFirst: true,
     updatedAt: new Date().toISOString()

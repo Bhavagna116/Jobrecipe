@@ -6,9 +6,15 @@ import {
   generateResumeQuestions,
   analyzeRoleSkillGaps,
   getRoleDefaults,
-  extractTextFromPdf
+  readResumeFile,
+  looksLikeResume
 } from '../../utils/resumeParser';
-import { getFaceLandmarker, classifyFrame } from '../../services/proctoringService';
+import {
+  getFaceLandmarker,
+  classifyFrame,
+  getObjectDetector,
+  classifyObjects
+} from '../../services/proctoringService';
 import { apiUrl } from '../../services/api';
 import { getActiveAssessments, checkAssessmentCompleted } from '../../utils/interviewLock';
 import { AnimatedAvatar } from '../../components/interview/AnimatedAvatar';
@@ -183,7 +189,10 @@ export const AIMockInterviewPage = () => {
     lockReason: 'AI Mock Interview sessions are currently locked by the administrator.',
     questionCount: 3,
     difficulty: 'Moderate',
-    maxWarnings: 3
+    maxWarnings: 3,
+    objectDetection: true,
+    audioProctoring: false,
+    audioProctoringStrikes: false
   };
 
   // Configurable attempt limit status (INTERVIEW_MAX_ATTEMPTS on the backend).
@@ -364,20 +373,21 @@ export const AIMockInterviewPage = () => {
 
     setWarningCount((prevCount) => {
       const newCount = prevCount + 1;
+      const maxWarnings = Math.max(1, Number(adminSettings?.maxWarnings) || 3);
       const logEntry = {
         number: newCount,
         reason: violationReason,
         time: new Date().toLocaleTimeString()
       };
       setProctoringLog((prev) => [...prev, logEntry]);
-      setActiveWarningMessage(`Warning ${newCount}/3: ${violationReason}`);
+      setActiveWarningMessage(`Warning ${newCount}/${maxWarnings}: ${violationReason}`);
 
-      if (newCount >= 3) {
-        // 3RD TIME: IMMEDIATELY CLOSE INTERVIEW AND AUTO-SUBMIT
+      if (newCount >= maxWarnings) {
+        // FINAL WARNING REACHED: IMMEDIATELY CLOSE INTERVIEW AND AUTO-SUBMIT
         setProctoringModal({
           violation: violationReason,
-          count: 3,
-          maxAllowed: 3,
+          count: maxWarnings,
+          maxAllowed: maxWarnings,
           isFinal: true
         });
 
@@ -406,25 +416,25 @@ export const AIMockInterviewPage = () => {
             stage: 'Q1',
             question: questions[0]?.questionText || 'Tell me about yourself.',
             category: 'INTRODUCTION & PROFILE',
-            companionNote: 'Interview closed & auto-submitted due to repeated proctoring violations (3 strikes).',
-            score: 35,
-            technicalScore: 35,
-            communicationScore: 40,
-            eyeContactScore: telemetry.eyeContact || 60,
-            attentionScore: telemetry.attention || 60,
-            confidenceScore: telemetry.confidence || 55
+            companionNote: 'Interview closed & auto-submitted due to repeated proctoring violations.',
+            score: 0,
+            technicalScore: 0,
+            communicationScore: 0,
+            eyeContactScore: Number(telemetry.eyeContact) || 0,
+            attentionScore: Number(telemetry.attention) || 0,
+            confidenceScore: Number(telemetry.confidence) || 0
           }];
 
           const violationAnalysis = {
             sessionId: currentSid,
-            overallScore: 35,
-            communicationScore: 40,
-            technicalScore: 35,
-            eyeContactScore: telemetry.eyeContact || 60,
-            attentionScore: telemetry.attention || 60,
-            confidenceScore: telemetry.confidence || 55,
+            overallScore: 0,
+            communicationScore: 0,
+            technicalScore: 0,
+            eyeContactScore: Number(telemetry.eyeContact) || 0,
+            attentionScore: Number(telemetry.attention) || 0,
+            confidenceScore: Number(telemetry.confidence) || 0,
             dominantEmotion: 'Distracted',
-            aiFeedback: 'Session auto-submitted due to 3 proctoring warnings.',
+            aiFeedback: 'Session auto-submitted due to repeated proctoring warnings.',
             questionBreakdown: fallbackAns.map((a) => ({
               ...a,
               transcript: a.companionNote,
@@ -457,7 +467,10 @@ export const AIMockInterviewPage = () => {
           fetch(apiUrl(`/api/interview/session/${currentSid}/complete`), {
             method: 'POST',
             headers,
-            body: JSON.stringify({ status: 'TERMINATED_VIOLATION', warningCount: 3 })
+            body: JSON.stringify({
+              status: 'TERMINATED_VIOLATION',
+              warningCount: Number(adminSettings?.maxWarnings) || 3
+            })
           }).catch(() => { });
         }, 2500);
       } else {
@@ -465,7 +478,7 @@ export const AIMockInterviewPage = () => {
         setProctoringModal({
           violation: violationReason,
           count: newCount,
-          maxAllowed: 3,
+          maxAllowed: maxWarnings,
           isFinal: false
         });
       }
@@ -474,13 +487,13 @@ export const AIMockInterviewPage = () => {
     });
   };
 
-  // Live Telemetry from real processing
+  // Live telemetry starts at zero until the first real frame is evaluated.
   const [telemetry, setTelemetry] = useState({
-    eyeContact: 92,
-    emotion: 'Focused',
-    headPose: 'Centered',
-    confidence: 88,
-    attention: 90,
+    eyeContact: 0,
+    emotion: 'Pending',
+    headPose: 'Unknown',
+    confidence: 0,
+    attention: 0,
   });
 
   // DOM Refs
@@ -576,9 +589,67 @@ export const AIMockInterviewPage = () => {
   const noiseTimeoutRef = useRef(null);
   const [noiseAlert, setNoiseAlert] = useState(false);
 
-  // MediaPipe FaceLandmarker for multiple face detection
+  // MediaPipe FaceLandmarker + ObjectDetector (phone / extra-body detection)
   const faceLandmarkerRef = useRef(null);
+  const objectDetectorRef = useRef(null);
   const sessionStartTimeRef = useRef(0);
+
+  // Measured telemetry accumulators. Every value shown in the report is derived
+  // from these counters — never from Math.random() or a fixed baseline.
+  const telemetryStatsRef = useRef({
+    frames: 0,
+    facePresent: 0,
+    gazeCentered: 0,
+    attentive: 0,
+    phoneFrames: 0,
+    extraPersonFrames: 0,
+    noFaceFrames: 0,
+    audioDisturbances: 0,
+  });
+  const noFaceStreakRef = useRef(0);
+  const phoneStreakRef = useRef(0);
+  const extraPersonStreakRef = useRef(0);
+  const violationCooldownRef = useRef({});
+  const lastNoiseEventRef = useRef(0);
+
+  const resetTelemetryStats = () => {
+    telemetryStatsRef.current = {
+      frames: 0,
+      facePresent: 0,
+      gazeCentered: 0,
+      attentive: 0,
+      phoneFrames: 0,
+      extraPersonFrames: 0,
+      noFaceFrames: 0,
+      audioDisturbances: 0,
+    };
+    noFaceStreakRef.current = 0;
+    phoneStreakRef.current = 0;
+    extraPersonStreakRef.current = 0;
+    violationCooldownRef.current = {};
+    lastNoiseEventRef.current = 0;
+  };
+
+  const computeMeasuredTelemetry = (stats) => {
+    const frames = Math.max(1, Number(stats?.frames) || 0);
+    return {
+      eyeContact: Math.round(((stats?.gazeCentered || 0) / frames) * 100),
+      attention: Math.round(((stats?.attentive || 0) / frames) * 100),
+      confidence: Math.round(((stats?.facePresent || 0) / frames) * 100),
+      emotion: (stats?.phoneFrames || 0) > 0 || (stats?.extraPersonFrames || 0) > 0
+        ? 'Distracted'
+        : (stats?.facePresent || 0) > 0 ? 'Focused' : 'Away',
+      headPose: (stats?.gazeCentered || 0) > 0 ? 'Centered' : 'Unknown',
+    };
+  };
+
+  const shouldFireViolation = (key, cooldownMs) => {
+    const now = Date.now();
+    const last = violationCooldownRef.current[key] || 0;
+    if (now - last < cooldownMs) return false;
+    violationCooldownRef.current[key] = now;
+    return true;
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -587,6 +658,11 @@ export const AIMockInterviewPage = () => {
         if (isMounted) faceLandmarkerRef.current = lm;
       })
       .catch((err) => console.warn('MediaPipe FaceLandmarker load notice:', err));
+    getObjectDetector()
+      .then((od) => {
+        if (isMounted) objectDetectorRef.current = od;
+      })
+      .catch((err) => console.warn('MediaPipe ObjectDetector load notice:', err));
     return () => {
       isMounted = false;
     };
@@ -627,13 +703,32 @@ export const AIMockInterviewPage = () => {
         }
         const avg = sum / dataArray.length;
 
-        // High external background noise threshold (> 40)
+        // High external background noise / multiple-voice threshold (> 40)
         if (avg > 40) {
           setNoiseAlert(true);
           if (noiseTimeoutRef.current) clearTimeout(noiseTimeoutRef.current);
           noiseTimeoutRef.current = setTimeout(() => {
             setNoiseAlert(false);
           }, 3500);
+
+          // Record an audio-environment event at most once every 10 seconds.
+          const now = Date.now();
+          if (
+            adminSettings.audioProctoring === true &&
+            now - lastNoiseEventRef.current > 10000
+          ) {
+            lastNoiseEventRef.current = now;
+            telemetryStatsRef.current.audioDisturbances += 1;
+
+            // Punitive audio strikes are opt-in only (admin setting); the
+            // default is an advisory notice so ordinary room noise does not
+            // terminate an otherwise valid interview.
+            if (adminSettings.audioProctoringStrikes === true) {
+              if (shouldFireViolation('audio', 20000)) {
+                triggerProctoringViolation('Background voice / high ambient noise detected');
+              }
+            }
+          }
         }
       }, 700);
     } catch (err) {
@@ -785,23 +880,18 @@ export const AIMockInterviewPage = () => {
   const handleFileUpload = async (file) => {
     if (!file) return;
     try {
-      let content = '';
-      if (file.type.includes('text') || file.name.endsWith('.txt')) {
-        content = await file.text();
-      } else {
-        try {
-          const buffer = await file.arrayBuffer();
-          content = await extractTextFromPdf(buffer);
-        } catch { }
-        if (!content || content.trim().length < 20) {
-          content = file.name.toLowerCase().includes('vishnu')
-            ? SAMPLE_ML_RESUME
-            : `${file.name.replace(/\.[^/.]+$/, '')} candidate profile. Technical experience in ${targetRole}, building software projects, modern frameworks, and system workflows.`;
+      const content = await readResumeFile(file);
+      if (!looksLikeResume(content)) {
+        if (typeof addToast === 'function') {
+          addToast('This file does not look like a resume. Upload a PDF or TXT resume with skills, experience, education, or projects.', 'error');
         }
+        return;
       }
       processResumeContent(file.name, content);
     } catch (e) {
-      processResumeContent(file.name, SAMPLE_ML_RESUME);
+      if (typeof addToast === 'function') {
+        addToast(e.message || 'Could not read the resume file. Please upload a valid PDF or TXT resume.', 'error');
+      }
     }
   };
 
@@ -819,10 +909,18 @@ export const AIMockInterviewPage = () => {
   };
 
   const handleApplyPastedResume = () => {
-    if (pastedText.trim()) {
-      processResumeContent('Pasted_Resume_Profile.txt', pastedText);
-      setShowPasteModal(false);
+    if (!pastedText.trim()) {
+      if (typeof addToast === 'function') addToast('Paste your resume text first.', 'warning');
+      return;
     }
+    if (!looksLikeResume(pastedText)) {
+      if (typeof addToast === 'function') {
+        addToast('The pasted text does not look like a resume. Include skills, experience, education, or projects.', 'error');
+      }
+      return;
+    }
+    processResumeContent('Pasted_Resume_Profile.txt', pastedText);
+    setShowPasteModal(false);
   };
 
   const startInterviewRoom = () => {
@@ -2052,11 +2150,38 @@ export const AIMockInterviewPage = () => {
       ? Math.round(updatedAnswers.reduce((acc, curr) => acc + curr.score, 0) / updatedAnswers.length)
       : 0;
 
-    const calcEye = hasSpokenAtAll ? Math.round(updatedAnswers.reduce((acc, curr) => acc + (curr.eyeContactScore || 85), 0) / updatedAnswers.length) : 0;
-    const calcComm = hasSpokenAtAll ? Math.round(updatedAnswers.reduce((acc, curr) => acc + (curr.communicationScore || 0), 0) / updatedAnswers.length) : 0;
-    const calcTech = hasSpokenAtAll ? Math.round(updatedAnswers.reduce((acc, curr) => acc + (curr.technicalScore || 0), 0) / updatedAnswers.length) : 0;
-    const calcConf = hasSpokenAtAll ? Math.round(updatedAnswers.reduce((acc, curr) => acc + (curr.confidenceScore || 80), 0) / updatedAnswers.length) : 0;
-    const calcAtt = hasSpokenAtAll ? Math.round(updatedAnswers.reduce((acc, curr) => acc + (curr.attentionScore || 85), 0) / updatedAnswers.length) : 0;
+    const avgOf = (key, fallback = 0) => {
+      if (!updatedAnswers.length) return 0;
+      const total = updatedAnswers.reduce((acc, curr) => {
+        const n = Number(curr?.[key]);
+        return acc + (Number.isFinite(n) ? n : fallback);
+      }, 0);
+      return Math.round(total / updatedAnswers.length);
+    };
+
+    const calcEye = hasSpokenAtAll ? avgOf('eyeContactScore', 0) : 0;
+    const calcComm = hasSpokenAtAll ? avgOf('communicationScore', 0) : 0;
+    const calcTech = hasSpokenAtAll ? avgOf('technicalScore', 0) : 0;
+    const calcConf = hasSpokenAtAll ? avgOf('confidenceScore', 0) : 0;
+    const calcAtt = hasSpokenAtAll ? avgOf('attentionScore', 0) : 0;
+    const calcEmotion = !hasSpokenAtAll
+      ? 'Neutral'
+      : calcAtt >= 70 ? 'Focused' : calcAtt >= 40 ? 'Neutral' : 'Distracted';
+
+    const measuredStrengths = [];
+    if (calcEye >= 70) measuredStrengths.push('Sustained eye contact with the camera');
+    if (calcTech >= 65) measuredStrengths.push('Structured technical explanations');
+    if (calcComm >= 65) measuredStrengths.push('Clear verbal communication');
+    if (measuredStrengths.length === 0) measuredStrengths.push('Completed the interview session');
+
+    const measuredWeaknesses = [];
+    if (calcEye < 60) measuredWeaknesses.push('Frequent gaze diversion or distraction detected');
+    if (calcTech < 60) measuredWeaknesses.push('Technical depth needs more concrete examples');
+    if (calcComm < 60) measuredWeaknesses.push('Responses were brief; expand with more detail');
+    if (telemetryStatsRef.current.phoneFrames > 0) measuredWeaknesses.push('A mobile phone was detected in the camera frame');
+    if (telemetryStatsRef.current.extraPersonFrames > 0) measuredWeaknesses.push('An additional person was detected in the camera frame');
+    if (telemetryStatsRef.current.audioDisturbances > 0) measuredWeaknesses.push(`${telemetryStatsRef.current.audioDisturbances} audio disturbance(s) detected in the environment`);
+    if (measuredWeaknesses.length === 0) measuredWeaknesses.push('Continue practicing timed interview answers');
 
     const currentSid = sessionId || `isess_local_${Date.now()}`;
 
@@ -2068,9 +2193,12 @@ export const AIMockInterviewPage = () => {
       eyeContactScore: calcEye,
       attentionScore: calcAtt,
       confidenceScore: calcConf,
-      dominantEmotion: hasSpokenAtAll ? 'Confident' : 'Neutral',
-      strengths: ['Structured problem breakdown', 'Consistent eye contact with camera lens'],
-      weaknesses: ['Deepen technical architecture & algorithmic tradeoffs'],
+      dominantEmotion: calcEmotion,
+      audioDisturbances: telemetryStatsRef.current.audioDisturbances,
+      phoneDetected: telemetryStatsRef.current.phoneFrames > 0,
+      extraPersonDetected: telemetryStatsRef.current.extraPersonFrames > 0,
+      strengths: measuredStrengths,
+      weaknesses: measuredWeaknesses,
       recommendations: ['Practice timed mock answers with system design examples'],
       aiFeedback: hasSpokenAtAll ? 'Candidate demonstrated solid proficiency across key technical requirements.' : 'Candidate remained silent or provided no spoken response.',
       questionBreakdown: updatedAnswers.map(a => {
@@ -2092,7 +2220,9 @@ export const AIMockInterviewPage = () => {
           communicationScore: isSkipped ? 0 : a.communicationScore,
           confidenceScore: isSkipped ? 0 : a.confidenceScore,
           eyeContactScore: isSkipped ? 0 : a.eyeContactScore,
-          dominantEmotion: isSkipped ? 'Neutral' : 'Confident',
+          dominantEmotion: isSkipped
+            ? 'Neutral'
+            : Number(a.attentionScore) >= 70 ? 'Focused' : Number(a.attentionScore) >= 40 ? 'Neutral' : 'Distracted',
           aiFeedback: isSkipped
             ? 'Answer skipped by candidate. No analysis.'
             : (a.score > 70 ? 'Strong structured response.' : 'Acceptable response with room for deeper technical precision.')
@@ -2184,11 +2314,18 @@ export const AIMockInterviewPage = () => {
     let commScore = 0;
     let quality = 'No Response';
 
+    // Snapshot the measured camera telemetry at the moment this answer ends.
+    // No random or fixed baseline is used anywhere in the score.
+    let answerTelemetry = computeMeasuredTelemetry(telemetryStatsRef.current);
+    const eye = isSilent ? 0 : Math.max(0, Math.min(100, Number(answerTelemetry.eyeContact) || 0));
+    const att = isSilent ? 0 : Math.max(0, Math.min(100, Number(answerTelemetry.attention) || 0));
+    const conf = isSilent ? 0 : Math.max(0, Math.min(100, Number(answerTelemetry.confidence) || 0));
+
     if (!isSilent) {
       const wordCount = words.length;
       commScore = Math.min(96, Math.max(45, 40 + Math.min(45, wordCount * 1.5)));
       techScore = Math.min(96, Math.max(45, 45 + Math.min(45, wordCount * 1.3)));
-      calculatedScore = Math.round(techScore * 0.5 + commScore * 0.3 + (telemetry.confidence || 80) * 0.1 + (telemetry.eyeContact || 80) * 0.1);
+      calculatedScore = Math.round(techScore * 0.5 + commScore * 0.3 + conf * 0.1 + eye * 0.1);
       quality = calculatedScore >= 80 ? 'Excellent' : 'Proficient';
     }
 
@@ -2206,10 +2343,10 @@ export const AIMockInterviewPage = () => {
             transcript: isSilent ? '' : recordedText,
             duration: Math.max(1, Math.round((Date.now() - (qStartTimeRef.current || Date.now())) / 1000)),
             telemetry: {
-              eyeContact: isSilent ? 0 : (telemetry.eyeContact || 85),
-              attention: isSilent ? 0 : (telemetry.attention || 85),
-              confidence: isSilent ? 0 : (telemetry.confidence || 80),
-              emotion: isSilent ? 'Neutral' : (telemetry.emotion || 'Neutral')
+              eyeContact: eye,
+              attention: att,
+              confidence: conf,
+              emotion: isSilent ? 'Neutral' : (answerTelemetry.emotion || 'Neutral')
             }
           })
         });
@@ -2221,6 +2358,13 @@ export const AIMockInterviewPage = () => {
             techScore = ansData.answer.technicalScore || techScore;
             commScore = ansData.answer.communicationScore || commScore;
             quality = ansData.answer.answerQuality || quality;
+            answerTelemetry = {
+              ...answerTelemetry,
+              eyeContact: Number(ansData.answer.eyeContactScore ?? eye) || 0,
+              attention: Number(ansData.answer.attentionScore ?? att) || 0,
+              confidence: Number(ansData.answer.confidenceScore ?? conf) || 0,
+              emotion: ansData.answer.dominantEmotion || answerTelemetry.emotion,
+            };
           }
         }
       } catch (err) {
@@ -2238,9 +2382,9 @@ export const AIMockInterviewPage = () => {
       score: isSilent ? 0 : calculatedScore,
       technicalScore: isSilent ? 0 : techScore,
       communicationScore: isSilent ? 0 : commScore,
-      eyeContactScore: isSilent ? 0 : telemetry.eyeContact,
-      attentionScore: isSilent ? 0 : telemetry.attention,
-      confidenceScore: isSilent ? 0 : telemetry.confidence
+      eyeContactScore: isSilent ? 0 : answerTelemetry.eyeContact,
+      attentionScore: isSilent ? 0 : answerTelemetry.attention,
+      confidenceScore: isSilent ? 0 : answerTelemetry.confidence
     };
 
     const updatedAnswers = [...answersList, answerRecord];
@@ -2468,34 +2612,118 @@ export const AIMockInterviewPage = () => {
         setTimerSeconds((prev) => prev + 1);
       }, 1000);
 
-      // Start proctoring telemetry
+      // Reset measured telemetry for this session, then start real detection.
+      resetTelemetryStats();
+      setTelemetry({ eyeContact: 0, attention: 0, confidence: 0, emotion: 'Pending', headPose: 'Unknown' });
+
       telemetryIntervalRef.current = setInterval(() => {
-        setTelemetry({
-          eyeContact: Math.floor(Math.random() * 12) + 86,
-          emotion: 'Focused',
-          headPose: 'Centered',
-          confidence: Math.floor(Math.random() * 10) + 85,
-          attention: Math.floor(Math.random() * 8) + 89,
-        });
+        const stats = telemetryStatsRef.current;
+        stats.frames += 1;
 
         // Camera track check
         if (mediaStreamRef.current) {
           const videoTrack = mediaStreamRef.current.getVideoTracks()[0];
           if (!videoTrack || !videoTrack.enabled || videoTrack.readyState === 'ended') {
-            triggerProctoringViolation('Camera Feed Inactive / No Face Detected');
+            if (shouldFireViolation('camera', 10000)) {
+              triggerProctoringViolation('Camera Feed Inactive / No Face Detected');
+            }
           }
         }
 
-        // MediaPipe Multi-Face Check
-        if (faceLandmarkerRef.current && videoRef.current && videoRef.current.readyState >= 2 && !proctoringModal) {
+        const canReadVideo = Boolean(
+          videoRef.current && videoRef.current.readyState >= 2
+        );
+
+        // Face + gaze detection
+        let faceStatus = 'unknown';
+        let faceCount = 0;
+        if (faceLandmarkerRef.current && canReadVideo) {
           try {
             const results = faceLandmarkerRef.current.detectForVideo(videoRef.current, performance.now());
-            if (results && results.faceLandmarks) {
-              if (results.faceLandmarks.length > 1) {
-                triggerProctoringViolation('Multiple Faces Detected');
-              }
+            const classified = classifyFrame(results);
+            faceStatus = classified.status;
+            faceCount = classified.faceCount || 0;
+
+            if (faceCount > 0) stats.facePresent += 1;
+            if (faceStatus === 'face_ok') stats.gazeCentered += 1;
+
+            if (faceStatus === 'no_face') {
+              stats.noFaceFrames += 1;
+              noFaceStreakRef.current += 1;
+            } else {
+              noFaceStreakRef.current = 0;
             }
-          } catch (e) { }
+
+            if (
+              faceCount > 1 &&
+              adminSettings.multiFaceDetection !== false &&
+              shouldFireViolation('multiFace', 8000)
+            ) {
+              triggerProctoringViolation('Multiple Faces Detected');
+            }
+          } catch (e) { /* detector warm-up */ }
+        }
+
+        // Object + body detection (phones and secondary people, even face-hidden)
+        let objectState = { phoneDetected: false, personCount: 0 };
+        if (
+          objectDetectorRef.current &&
+          canReadVideo &&
+          adminSettings.objectDetection !== false
+        ) {
+          try {
+            const objectResults = objectDetectorRef.current.detectForVideo(videoRef.current, performance.now());
+            objectState = classifyObjects(objectResults);
+          } catch (e) { /* detector warm-up */ }
+        }
+
+        if (objectState.phoneDetected) {
+          stats.phoneFrames += 1;
+          phoneStreakRef.current += 1;
+        } else {
+          phoneStreakRef.current = 0;
+        }
+
+        if (objectState.personCount >= 2) {
+          stats.extraPersonFrames += 1;
+          extraPersonStreakRef.current += 1;
+        } else {
+          extraPersonStreakRef.current = 0;
+        }
+
+        const isAttentive =
+          faceStatus === 'face_ok' &&
+          !objectState.phoneDetected &&
+          objectState.personCount < 2;
+        if (isAttentive) stats.attentive += 1;
+
+        const measured = computeMeasuredTelemetry(stats);
+        const currentEmotion = objectState.phoneDetected || objectState.personCount >= 2
+          ? 'Distracted'
+          : faceStatus === 'face_ok'
+            ? 'Focused'
+            : faceStatus === 'no_face'
+              ? 'Away'
+              : 'Neutral';
+
+        setTelemetry({
+          ...measured,
+          emotion: currentEmotion,
+          headPose: faceStatus === 'looking_away'
+            ? 'Turned'
+            : faceStatus === 'face_ok' ? 'Centered' : 'Unknown',
+        });
+
+        // Escalate only after sustained detections to avoid single-frame noise.
+        if (phoneStreakRef.current >= 2 && shouldFireViolation('phone', 8000)) {
+          triggerProctoringViolation('Mobile phone detected in frame');
+          phoneStreakRef.current = 0;
+        } else if (extraPersonStreakRef.current >= 3 && shouldFireViolation('extraPerson', 8000)) {
+          triggerProctoringViolation('Additional person detected in frame');
+          extraPersonStreakRef.current = 0;
+        } else if (noFaceStreakRef.current >= 5 && shouldFireViolation('noFace', 10000)) {
+          triggerProctoringViolation('No face detected in frame');
+          noFaceStreakRef.current = 0;
         }
       }, 1200);
 
@@ -2555,15 +2783,15 @@ export const AIMockInterviewPage = () => {
         : questions.map((q, idx) => ({
           questionNumber: idx + 1,
           stage: `Q${idx + 1}`,
-          question: q.questionText || q.question || 'Machine Learning Architecture & Evaluation',
+          question: q.questionText || q.question || 'Interview question',
           category: q.category || 'TECHNICAL',
-          companionNote: 'Candidate verbal response recorded and evaluated by AI evaluator.',
-          score: 82,
-          technicalScore: 85,
-          communicationScore: 78,
-          eyeContactScore: 88,
-          attentionScore: 90,
-          confidenceScore: 84
+          companionNote: 'No recorded answer for this question.',
+          score: 0,
+          technicalScore: 0,
+          communicationScore: 0,
+          eyeContactScore: 0,
+          attentionScore: 0,
+          confidenceScore: 0
         })));
 
     const answeredCount = effectiveAnswers.filter(a => a.score > 0).length;
@@ -2573,11 +2801,26 @@ export const AIMockInterviewPage = () => {
       ? (finalAnalysis ? Number(finalAnalysis.overallScore) : Math.round(effectiveAnswers.reduce((acc, curr) => acc + curr.score, 0) / effectiveAnswers.length))
       : 0;
 
-    const eyeContactVal = hasSpokenAtAll ? (finalAnalysis ? Number(finalAnalysis.eyeContactScore) : 88) : 0;
-    const commVal = hasSpokenAtAll ? Math.round(effectiveAnswers.reduce((acc, curr) => acc + (curr.communicationScore || 0), 0) / effectiveAnswers.length) : 0;
-    const techVal = hasSpokenAtAll ? Math.round(effectiveAnswers.reduce((acc, curr) => acc + (curr.technicalScore || 0), 0) / effectiveAnswers.length) : 0;
-    const confVal = hasSpokenAtAll ? (finalAnalysis ? Number(finalAnalysis.confidenceScore) : 86) : 0;
-    const attVal = hasSpokenAtAll ? (finalAnalysis ? Number(finalAnalysis.attentionScore) : 88) : 0;
+    const avgEffective = (key) => {
+      if (!effectiveAnswers.length) return 0;
+      const total = effectiveAnswers.reduce((acc, curr) => {
+        const n = Number(curr?.[key]);
+        return acc + (Number.isFinite(n) ? n : 0);
+      }, 0);
+      return Math.round(total / effectiveAnswers.length);
+    };
+
+    const eyeContactVal = hasSpokenAtAll
+      ? (finalAnalysis ? Number(finalAnalysis.eyeContactScore) || 0 : avgEffective('eyeContactScore'))
+      : 0;
+    const commVal = hasSpokenAtAll ? avgEffective('communicationScore') : 0;
+    const techVal = hasSpokenAtAll ? avgEffective('technicalScore') : 0;
+    const confVal = hasSpokenAtAll
+      ? (finalAnalysis ? Number(finalAnalysis.confidenceScore) || 0 : avgEffective('confidenceScore'))
+      : 0;
+    const attVal = hasSpokenAtAll
+      ? (finalAnalysis ? Number(finalAnalysis.attentionScore) || 0 : avgEffective('attentionScore'))
+      : 0;
 
     const DIMENSIONS = [
       { label: 'Eye Contact', score: eyeContactVal, icon: Eye },
@@ -3154,10 +3397,14 @@ export const AIMockInterviewPage = () => {
             >
               <input
                 type="file"
-                accept=".pdf,.docx,.doc,.txt"
+                accept=".pdf,.txt"
                 id="resume-file-input"
                 className="hidden"
-                onChange={(e) => handleFileUpload(e.target.files?.[0])}
+                onChange={(e) => {
+                  const selected = e.target.files?.[0];
+                  e.target.value = '';
+                  handleFileUpload(selected);
+                }}
               />
 
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
@@ -4025,9 +4272,9 @@ export const AIMockInterviewPage = () => {
                 <h3 className="text-lg font-black tracking-tight text-white">
                   {proctoringModal.isFinal
                     ? 'Interview Closed & Auto-Submitted'
-                    : proctoringModal.count === 2
-                      ? 'FINAL WARNING (2 of 2)'
-                      : `Warning 1 of 2`}
+                    : proctoringModal.count >= (proctoringModal.maxAllowed || 3) - 1
+                      ? `FINAL WARNING (${proctoringModal.count} of ${proctoringModal.maxAllowed || 3})`
+                      : `Warning ${proctoringModal.count} of ${proctoringModal.maxAllowed || 3}`}
                 </h3>
               </div>
             </div>
@@ -4039,22 +4286,31 @@ export const AIMockInterviewPage = () => {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Violation Count:</span>
-                <span className="font-bold font-mono text-rose-400">{proctoringModal.count} / 3 Strikes</span>
+                <span className="font-bold font-mono text-rose-400">
+                  {proctoringModal.count} / {proctoringModal.maxAllowed || 3} Strikes
+                </span>
               </div>
             </div>
 
             <p className="text-xs text-slate-200 leading-relaxed mb-5">
               {proctoringModal.isFinal ? (
                 <span>
-                  Maximum proctoring violations reached (3 strikes). Your interview session has closed and your answers are being submitted automatically.
+                  Maximum proctoring violations reached ({proctoringModal.maxAllowed || 3} strikes). Your interview session has closed and your answers are being submitted automatically.
                 </span>
-              ) : proctoringModal.count === 2 ? (
+              ) : proctoringModal.count >= (proctoringModal.maxAllowed || 3) - 1 ? (
                 <span>
-                  <strong className="text-amber-400">FINAL WARNING (2 of 2)!</strong> You have incurred 2 strikes. Exiting fullscreen, closing or switching tabs, and multiple faces detected are strictly prohibited. The 3rd strike will immediately close and submit your interview!
+                  <strong className="text-amber-400">
+                    FINAL WARNING ({proctoringModal.count} of {proctoringModal.maxAllowed || 3})!
+                  </strong>{' '}
+                  You have incurred {proctoringModal.count} strike(s). Exiting fullscreen, switching tabs, a mobile phone, an additional person, or multi-face detection are strictly prohibited. The next strike will immediately close and submit your interview.
                 </span>
               ) : (
                 <span>
-                  <strong>Warning 1 of 2:</strong> Please stay in full-screen mode, do not close or switch browser tabs, and ensure only you are visible to the camera. You have 1 warning remaining.
+                  <strong>
+                    Warning {proctoringModal.count} of {proctoringModal.maxAllowed || 3}:
+                  </strong>{' '}
+                  Please stay in full-screen mode, do not close or switch browser tabs, keep phones out of frame, and ensure only you are visible to the camera. You have{' '}
+                  {Math.max(0, (proctoringModal.maxAllowed || 3) - proctoringModal.count)} warning(s) remaining.
                 </span>
               )}
             </p>
@@ -4071,9 +4327,9 @@ export const AIMockInterviewPage = () => {
                   onClick={handleAcknowledgeWarning}
                   className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-black text-xs shadow-lg transition-all cursor-pointer hover:scale-[1.02]"
                 >
-                  {proctoringModal.count === 2
+                  {proctoringModal.count >= (proctoringModal.maxAllowed || 3) - 1
                     ? 'I Understand (Final Warning) • Resume Fullscreen'
-                    : 'Acknowledge Warning 1 • Resume Fullscreen'}
+                    : `Acknowledge Warning ${proctoringModal.count} • Resume Fullscreen`}
                 </button>
               )}
             </div>

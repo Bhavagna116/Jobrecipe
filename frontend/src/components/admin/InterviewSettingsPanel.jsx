@@ -22,6 +22,9 @@ export const InterviewSettingsPanel = () => {
     strictProctoring: true,
     cameraRequired: true,
     multiFaceDetection: true,
+    objectDetection: true,
+    audioProctoring: false,
+    audioProctoringStrikes: false,
     requireAssessmentFirst: false,
     defaultRole: 'Data Scientist'
   });
@@ -322,6 +325,81 @@ export const InterviewSettingsPanel = () => {
             <p className="text-[11px] text-slate-400">
               Initial pre-fill role when candidates launch the mock interview studio.
             </p>
+          </div>
+        </div>
+
+        {/* SECTION 3b: CAMERA OBJECT & AUDIO PROCTORING */}
+        <div className="p-5 rounded-2xl bg-white border border-slate-200 space-y-4">
+          <div>
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Camera Object & Audio Proctoring
+            </h4>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Controls MediaPipe object detection (phones, secondary bodies) and environment audio monitoring.
+            </p>
+          </div>
+
+          <div className="space-y-3 divide-y divide-slate-100">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <span className="text-xs font-bold text-slate-800 block">Detect phones & secondary people</span>
+                <span className="text-[11px] text-slate-500 block">
+                  Scans the camera for mobile phones and additional bodies even when their face is hidden.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSettings((prev) => ({ ...prev, objectDetection: !prev.objectDetection }))}
+                className={`w-10 h-5 flex items-center rounded-full p-0.5 cursor-pointer transition-colors ${
+                  settings.objectDetection ? 'bg-cyan-600' : 'bg-slate-300'
+                }`}
+              >
+                <div className={`w-4 h-4 rounded-full bg-white shadow-md transform transition-transform ${
+                  settings.objectDetection ? 'translate-x-5' : 'translate-x-0'
+                }`} />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 pt-3">
+              <div>
+                <span className="text-xs font-bold text-slate-800 block">Flag audio disturbances</span>
+                <span className="text-[11px] text-slate-500 block">
+                  Detects loud background noise / multiple voices. Advisory by default; shown in the report.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSettings((prev) => ({ ...prev, audioProctoring: !prev.audioProctoring }))}
+                className={`w-10 h-5 flex items-center rounded-full p-0.5 cursor-pointer transition-colors ${
+                  settings.audioProctoring ? 'bg-cyan-600' : 'bg-slate-300'
+                }`}
+              >
+                <div className={`w-4 h-4 rounded-full bg-white shadow-md transform transition-transform ${
+                  settings.audioProctoring ? 'translate-x-5' : 'translate-x-0'
+                }`} />
+              </button>
+            </div>
+
+            <div className={`flex items-center justify-between gap-4 pt-3 ${settings.audioProctoring ? '' : 'opacity-50'}`}>
+              <div>
+                <span className="text-xs font-bold text-slate-800 block">Count audio events as warning strikes</span>
+                <span className="text-[11px] text-slate-500 block">
+                  When enabled, repeated audio disturbances can terminate the session. Disabled by default.
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={!settings.audioProctoring}
+                onClick={() => setSettings((prev) => ({ ...prev, audioProctoringStrikes: !prev.audioProctoringStrikes }))}
+                className={`w-10 h-5 flex items-center rounded-full p-0.5 transition-colors ${
+                  settings.audioProctoringStrikes ? 'bg-rose-600' : 'bg-slate-300'
+                } ${settings.audioProctoring ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+              >
+                <div className={`w-4 h-4 rounded-full bg-white shadow-md transform transition-transform ${
+                  settings.audioProctoringStrikes ? 'translate-x-5' : 'translate-x-0'
+                }`} />
+              </button>
+            </div>
           </div>
         </div>
 
