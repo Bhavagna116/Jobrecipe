@@ -67,7 +67,19 @@
   }
 }
 
-/* Custom modern scrollbars */
+  @layer utilities {
+    .bg-input {
+      background-color: #f9fafb;
+    }
+    .border-line {
+      border-color: #e5e7eb;
+    }
+    .shadow-card {
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.03), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
+    }
+  }
+
+  /* Custom modern scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

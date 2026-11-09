@@ -7,6 +7,15 @@ export default {
   theme: {
     extend: {
       colors: {
+        ink: {
+          DEFAULT: '#262626',
+          80: '#262626',
+          70: '#525252',
+          60: '#737373',
+          50: '#a3a3a3',
+          40: '#bfbfbf',
+          30: '#d4d4d4',
+        },
         brand: {
           50: '#f0f7ff',
           100: '#e0effe',

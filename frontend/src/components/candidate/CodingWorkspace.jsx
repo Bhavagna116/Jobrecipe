@@ -1461,14 +1461,14 @@ export const CodingWorkspace = ({
           {/* 4. LEETCODE BOTTOM ACTION BAR */}
           <footer className="px-4 py-2.5 bg-[#262626] border-t border-zinc-800 flex items-center justify-between text-xs">
             {/* Left: Console Toggle Button */}
-            <button
+            {/* <button
               onClick={() => setIsConsoleOpen(prev => !prev)}
               className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 font-bold flex items-center gap-1.5 transition-colors border border-zinc-700"
             >
               <Terminal className="w-3.5 h-3.5 text-zinc-400" />
               <span>Console</span>
               {isConsoleOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-            </button>
+            </button> */}
 
             {/* Right: Run Code (Gray), Submit Code (Indigo/Emerald) and advance to next section (Emerald) */}
             <div className="flex items-center gap-2">
