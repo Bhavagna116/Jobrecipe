@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Modal } from '../../components/common/Modal';
 import { SectionsEditorModal } from '../../components/admin/SectionsEditorModal';
 import { parseQuestionsFromExcel, downloadExcelQuestionTemplate } from '../../utils/excelParser';
+import { api } from '../../services/api';
 import {
   Layers,
   Plus,
@@ -34,7 +35,8 @@ import {
   Tag,
   Laptop,
   Zap,
-  CheckSquare
+  CheckSquare,
+  RefreshCw
 } from 'lucide-react';
 
 // Helper to authoritatively determine if a question is an interactive coding challenge
@@ -127,6 +129,7 @@ export const AdminAssessmentsPage = () => {
   const [sectionsAsm, setSectionsAsm] = useState(null);
   const [editingAsmId, setEditingAsmId] = useState(null);
   const [collegesList, setCollegesList] = useState([]);
+  const [collegesLoading, setCollegesLoading] = useState(true);
 
   // Wizard state — a single unified assessment may mix coding + MCQ questions
   const [newAssessment, setNewAssessment] = useState({
@@ -161,31 +164,42 @@ export const AdminAssessmentsPage = () => {
   const isFullTrack = (newAssessment.category || '').toLowerCase() === 'full';
   const isSectionalTrack = !isCodingTrack && !isAllMixTrack && !isFullTrack;
 
-  // Fetch colleges list for college linking. Use the authenticated admin
-  // endpoint (returns every college); fall back to the public active-only list.
+  // Fetch colleges for college linking. Request the admin list and the public
+  // active list in parallel; either one is enough to populate the selector.
   useEffect(() => {
+    let alive = true;
     (async () => {
-      try {
-        const res = await api.colleges.list();
-        if (res?.ok && Array.isArray(res.data) && res.data.length > 0) {
-          setCollegesList(res.data);
-          return;
-        }
-        const fallback = await api.auth.colleges();
-        if (fallback?.ok && Array.isArray(fallback.data)) {
-          setCollegesList(fallback.data);
-        }
-      } catch (err) {
-        try {
-          const fallback = await api.auth.colleges();
-          if (fallback?.ok && Array.isArray(fallback.data)) {
-            setCollegesList(fallback.data);
-          }
-        } catch {
-          addToast?.('Could not load colleges. Please refresh the page.', 'error');
-        }
+      const results = await Promise.allSettled([
+        api.colleges.list(),
+        api.auth.colleges(),
+      ]);
+      if (!alive) return;
+
+      const adminRes = results[0].status === 'fulfilled' ? results[0].value : null;
+      const publicRes = results[1].status === 'fulfilled' ? results[1].value : null;
+      const adminList = adminRes?.ok && Array.isArray(adminRes.data) ? adminRes.data : [];
+      const publicList = publicRes?.ok && Array.isArray(publicRes.data) ? publicRes.data : [];
+      const list = adminList.length > 0 ? adminList : publicList;
+      setCollegesLoading(false);
+
+      if (list.length > 0) {
+        setCollegesList(list);
+      } else {
+        console.warn('[assessments] college list unavailable', {
+          adminStatus: adminRes?.status,
+          adminError: adminRes?.error,
+          publicStatus: publicRes?.status,
+          publicError: publicRes?.error,
+        });
+        addToast?.('Could not load colleges. Please refresh the page.', 'error');
       }
-    })();
+    })().catch((err) => {
+      if (!alive) return;
+      setCollegesLoading(false);
+      console.warn('[assessments] college load failed:', err);
+      addToast?.('Could not load colleges. Please refresh the page.', 'error');
+    });
+    return () => { alive = false; };
   }, []);
 
   // Filter assessments for catalog
@@ -920,7 +934,13 @@ export const AdminAssessmentsPage = () => {
                     </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {collegesList.map((col) => {
+                    {collegesLoading && (
+                      <div className="col-span-full p-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[11px] text-slate-500 text-center flex items-center justify-center gap-2">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-brand-600" />
+                        Loading colleges…
+                      </div>
+                    )}
+                    {!collegesLoading && collegesList.map((col) => {
                       const isSelected = newAssessment.collegeIds.includes(col.id);
                       return (
                         <button
@@ -946,7 +966,7 @@ export const AdminAssessmentsPage = () => {
                         </button>
                       );
                     })}
-                    {collegesList.length === 0 && (
+                    {!collegesLoading && collegesList.length === 0 && (
                       <div className="col-span-full p-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[11px] text-slate-400 text-center">
                         No colleges available. Onboard colleges first from the Colleges page.
                       </div>
