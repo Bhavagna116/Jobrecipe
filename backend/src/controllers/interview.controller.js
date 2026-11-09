@@ -1207,7 +1207,7 @@ const loadSettingsFromDisk = () => {
     cameraRequired: true,
     multiFaceDetection: true,
     objectDetection: true,
-    audioProctoring: false,
+    audioProctoring: true,
     audioProctoringStrikes: false,
     defaultRole: 'Data Scientist',
     requireAssessmentFirst: true,

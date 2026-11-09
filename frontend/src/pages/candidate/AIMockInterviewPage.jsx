@@ -191,7 +191,7 @@ export const AIMockInterviewPage = () => {
     difficulty: 'Moderate',
     maxWarnings: 3,
     objectDetection: true,
-    audioProctoring: false,
+    audioProctoring: true,
     audioProctoringStrikes: false
   };
 

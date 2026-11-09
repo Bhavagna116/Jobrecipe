@@ -23,7 +23,7 @@ export const InterviewSettingsPanel = () => {
     cameraRequired: true,
     multiFaceDetection: true,
     objectDetection: true,
-    audioProctoring: false,
+    audioProctoring: true,
     audioProctoringStrikes: false,
     requireAssessmentFirst: false,
     defaultRole: 'Data Scientist'
