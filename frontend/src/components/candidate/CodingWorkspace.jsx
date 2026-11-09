@@ -432,8 +432,19 @@ export const CodingWorkspace = ({
 
       if (res.success && res.evaluation) {
         const evalRes = res.evaluation;
+        // /code/run returns `evaluation` only; build the same summary the
+        // submit path uses so the results panel can show sample counts.
+        const summary = res.summary || {
+          totalTests: evalRes.totalTests,
+          passedTests: evalRes.passedTests,
+          sampleTotal: evalRes.testResults?.filter(t => !t.isHidden).length || 0,
+          samplePassed: evalRes.testResults?.filter(t => !t.isHidden && t.passed).length || 0,
+          hiddenTotal: evalRes.testResults?.filter(t => t.isHidden).length || 0,
+          hiddenPassed: evalRes.testResults?.filter(t => t.isHidden && t.passed).length || 0
+        };
         setRunResults({
           ...res,
+          summary,
           isOfficialSubmission: false,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         });
@@ -649,6 +660,18 @@ export const CodingWorkspace = ({
     medium: 'text-[#ffc01e] bg-[#ffc01e]/10 border-[#ffc01e]/20',
     hard: 'text-[#ff375f] bg-[#ff375f]/10 border-[#ff375f]/20'
   }[difficulty] || 'text-[#ffc01e] bg-[#ffc01e]/10 border-[#ffc01e]/20';
+
+  // Sample test-case tally for the results panel. The /code/run response only
+  // carries `evaluation` (no `summary`), so derive the counts from the test
+  // results when the summary is missing. Without this, a successful run showed
+  // "2 / 2" but the badge fell back to 0/0 and read "Sample Failing".
+  const sampleSummary = (() => {
+    const testResults = runResults?.evaluation?.testResults || [];
+    const visible = testResults.filter(t => !t.isHidden);
+    const passed = runResults?.summary?.samplePassed ?? visible.filter(t => t.passed).length;
+    const total = runResults?.summary?.sampleTotal ?? visible.length;
+    return { passed, total, allPassed: total > 0 && passed === total };
+  })();
 
   const isDark = editorTheme === 'vs-dark';
 
@@ -1281,19 +1304,19 @@ export const CodingWorkspace = ({
                           </div>
                           <div className="text-right">
                             <div className="text-sm font-extrabold text-zinc-100">
-                              <span className={(runResults.summary?.samplePassed ?? 0) === (runResults.summary?.sampleTotal ?? 0) && (runResults.summary?.sampleTotal ?? 0) > 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                                {runResults.summary?.samplePassed ?? runResults.evaluation.testResults?.filter(t => !t.isHidden && t.passed).length ?? 0}
+                              <span className={sampleSummary.allPassed ? 'text-emerald-400' : 'text-rose-400'}>
+                                {sampleSummary.passed}
                               </span>
-                              <span className="text-zinc-500 font-normal"> / {runResults.summary?.sampleTotal ?? runResults.evaluation.testResults?.filter(t => !t.isHidden).length ?? 0}</span>
+                              <span className="text-zinc-500 font-normal"> / {sampleSummary.total}</span>
                             </div>
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded inline-block mt-0.5 ${
-                              (runResults.summary?.samplePassed ?? 0) === (runResults.summary?.sampleTotal ?? 0) && (runResults.summary?.sampleTotal ?? 0) > 0
+                              sampleSummary.allPassed
                                 ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/60'
+                                : sampleSummary.total === 0
+                                ? 'bg-zinc-800/80 text-zinc-400 border border-zinc-700/60'
                                 : 'bg-rose-950/80 text-rose-400 border border-rose-800/60'
                             }`}>
-                              {(runResults.summary?.samplePassed ?? 0) === (runResults.summary?.sampleTotal ?? 0) && (runResults.summary?.sampleTotal ?? 0) > 0
-                                ? 'All Sample Passed'
-                                : 'Sample Failing'}
+                              {sampleSummary.allPassed ? 'All Sample Passed' : sampleSummary.total === 0 ? 'No Sample Cases' : 'Sample Failing'}
                             </span>
                           </div>
                         </div>
