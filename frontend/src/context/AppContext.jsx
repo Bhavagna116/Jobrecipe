@@ -15,7 +15,12 @@ const AppContext = createContext();
 const persistAssessmentSections = async (assessmentId, sectionsSpec) => {
   if (!assessmentId || !Array.isArray(sectionsSpec) || sectionsSpec.length === 0) return;
   const qRes = await api.assessments.getQuestions(assessmentId);
-  const rows = qRes?.ok ? (qRes.data?.data || []) : [];
+  // The API client unwraps the JSON `data` field, so `qRes.data` is normally
+  // the array. Keep support for the older nested shape as well.
+  const rawRows = qRes?.ok ? qRes.data : null;
+  const rows = Array.isArray(rawRows)
+    ? rawRows
+    : (Array.isArray(rawRows?.data) ? rawRows.data : []);
   const linkIdByQuestionId = {};
   rows.forEach((r) => { if (r.question_id) linkIdByQuestionId[r.question_id] = r.id; });
 
@@ -30,8 +35,18 @@ const persistAssessmentSections = async (assessmentId, sectionsSpec) => {
     }))
     .filter((s) => s.name && s.questionIds.length > 0);
 
-  if (sections.length === 0) return;
-  await api.assessments.replaceSections(assessmentId, { sections });
+  if (sections.length === 0) {
+    console.warn('[sections] No linkable questions found; skipping section save.', {
+      assessmentId,
+      questionRows: rows.length,
+      requestedSections: sectionsSpec.length,
+    });
+    return;
+  }
+  const saveRes = await api.assessments.replaceSections(assessmentId, { sections });
+  if (!saveRes?.ok) {
+    console.warn('[sections] Section save failed:', saveRes?.error);
+  }
 };
 
 export const AppProvider = ({ children }) => {

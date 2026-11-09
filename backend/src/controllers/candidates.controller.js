@@ -487,6 +487,20 @@ export const resetCandidateAttempt = async (req, res) => {
     const targetIds = Array.from(idsSet);
     const targetEmails = Array.from(emailsSet);
 
+    // 1b. Delete any in-progress / completed test attempts so the candidate
+    // can actually retake the assessment.
+    let deletedAttempts = 0;
+    if (assessmentId && targetIds.length > 0) {
+      const delTa = await client.query(
+        `DELETE FROM test_attempts
+         WHERE assessment_id = $1::varchar
+           AND candidate_id = ANY($2::varchar[])
+         RETURNING id`,
+        [assessmentId, targetIds]
+      );
+      deletedAttempts += delTa.rowCount || 0;
+    }
+
     // 2. Delete submission(s) from assessment_submissions and submissions
     let deletedCount = 0;
     if (assessmentId && assessmentId !== 'all') {
@@ -578,7 +592,8 @@ export const resetCandidateAttempt = async (req, res) => {
       message: 'Assessment attempt reset successfully. The candidate can now retake the assessment.',
       candidateId,
       assessmentId: assessmentId || 'all',
-      deletedSubmissions: deletedCount
+      deletedSubmissions: deletedCount,
+      deletedAttempts: deletedAttempts
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

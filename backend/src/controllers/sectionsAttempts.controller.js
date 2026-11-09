@@ -189,9 +189,50 @@ export const replaceAssessmentSections = async (req, res) => {
           [sec.id, assessmentId, sec.questionIds]
         );
       }
+    }
+
+    // Propagate section assignments to the generated sets (B/C) by matching
+    // the category/topic of the authored Set A questions.
+    const setARows = await client.query(
+      `SELECT category, topic, section_id
+       FROM assessment_questions
+       WHERE assessment_id = $1 AND set_code = 'A' AND section_id IS NOT NULL`,
+      [assessmentId]
+    );
+    const topicSection = new Map();
+    const categorySection = new Map();
+    for (const row of setARows.rows) {
+      const cat = String(row.category || '').trim().toLowerCase();
+      const topic = String(row.topic || '').trim().toLowerCase();
+      if (cat && topic && !topicSection.has(`${cat}|${topic}`)) {
+        topicSection.set(`${cat}|${topic}`, row.section_id);
+      }
+      if (cat && !categorySection.has(cat)) {
+        categorySection.set(cat, row.section_id);
+      }
+    }
+
+    const otherSetRows = await client.query(
+      `SELECT id, category, topic
+       FROM assessment_questions
+       WHERE assessment_id = $1 AND set_code <> 'A'`,
+      [assessmentId]
+    );
+    for (const row of otherSetRows.rows) {
+      const cat = String(row.category || '').trim().toLowerCase();
+      const topic = String(row.topic || '').trim().toLowerCase();
+      const sectionId = topicSection.get(`${cat}|${topic}`) || categorySection.get(cat) || null;
+      await client.query(
+        'UPDATE assessment_questions SET section_id = $1 WHERE id = $2',
+        [sectionId, row.id]
+      );
+    }
+
+    for (const sec of savedSections) {
       await client.query(
         `UPDATE assessment_sections SET question_count =
-           (SELECT COUNT(*) FROM assessment_questions WHERE assessment_id = $1 AND section_id = $2)
+           (SELECT COUNT(*) FROM assessment_questions
+            WHERE assessment_id = $1 AND section_id = $2 AND set_code = 'A')
          WHERE id = $2`,
         [assessmentId, sec.id]
       );
@@ -204,7 +245,8 @@ export const replaceAssessmentSections = async (req, res) => {
     const data = [];
     for (const sec of saved) {
       const qRes = await client.query(
-        'SELECT id FROM assessment_questions WHERE section_id = $1',
+        `SELECT id FROM assessment_questions
+         WHERE section_id = $1 AND set_code = 'A'`,
         [sec.id]
       );
       data.push({
