@@ -4,7 +4,9 @@ import {
   parseResumeText,
   generateResumeQuestions,
   readResumeFile,
-  looksLikeResume
+  looksLikeResume,
+  TARGET_ROLE_GROUPS,
+  TARGET_ROLE_OPTIONS
 } from '../../utils/resumeParser';
 import {
   FileText,
@@ -20,16 +22,6 @@ import {
   Zap,
   Lock
 } from 'lucide-react';
-
-const PRESET_ROLES = [
-  'ML Engineer',
-  'Software Engineer',
-  'Full Stack Developer',
-  'Frontend Developer',
-  'Backend Developer',
-  'Data Scientist',
-  'DevOps Engineer'
-];
 
 const SAMPLE_ML_RESUME = `Pera Vishnuvardhan Reddy - Machine Learning Engineer
 Summary: Passionate ML Engineer experienced in building predictive models, data preprocessing pipelines, and model evaluation with Python, Scikit-Learn, and PyTorch.
@@ -245,40 +237,31 @@ export const ResumeATSSection = () => {
           </div>
         )}
 
-        {/* ? TARGET ROLE INPUT FIELD (Matches Image 1 reference precisely) */}
+        {/* TARGET ROLE DROPDOWN */}
         <div className="mt-6">
           <label className="block text-xs sm:text-sm font-semibold text-slate-300 mb-2">
-            Target Role <span className="text-slate-500 font-normal">(Optional - Type or Select Below)</span>
+            Target Role <span className="text-slate-500 font-normal">(Select one)</span>
           </label>
 
-          <div className="relative">
-            <input
-              type="text"
-              value={targetRole}
-              onChange={(e) => handleRoleChange(e.target.value)}
-              placeholder="e.g. ML Engineer, Software Engineer, Data Scientist"
-              className="w-full bg-slate-950/80 border border-slate-800 hover:border-slate-700 focus:border-cyan-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition-all shadow-inner font-medium"
-            />
-          </div>
-
-          {/* Quick Preset Role Chips */}
-          <div className="mt-3 flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-medium text-slate-500">Quick Roles:</span>
-            {PRESET_ROLES.map((role) => (
-              <button
-                key={role}
-                type="button"
-                onClick={() => handleRoleChange(role)}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all border ${
-                  targetRole.toLowerCase() === role.toLowerCase()
-                    ? 'bg-cyan-950 border-cyan-400 text-cyan-300 font-bold shadow-sm'
-                    : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
-                }`}
-              >
-                {role}
-              </button>
+          <select
+            value={targetRole}
+            onChange={(e) => handleRoleChange(e.target.value)}
+            className="w-full bg-slate-950/80 border border-slate-800 hover:border-slate-700 focus:border-cyan-500 rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition-all shadow-inner font-medium cursor-pointer"
+          >
+            {targetRole && !TARGET_ROLE_OPTIONS.includes(targetRole) && (
+              <option value={targetRole}>{targetRole}</option>
+            )}
+            {TARGET_ROLE_GROUPS.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.roles.map((role) => (
+                  <option key={role} value={role}>{role}</option>
+                ))}
+              </optgroup>
             ))}
-          </div>
+          </select>
+          <span className="text-[10px] text-slate-500 mt-1.5 block">
+            The interview questions and ATS benchmark calibrate to the selected role.
+          </span>
         </div>
 
         {/* ? ATS SCORE & INTERVIEW PREVIEW */}

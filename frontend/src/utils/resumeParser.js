@@ -4,6 +4,48 @@
  * calculates ATS match, extracts skill gaps, and generates moderate-level interview questions.
  */
 
+/**
+ * Canonical target-role options for the interview setup dropdowns.
+ * Grouped for readability; the flat list is convenient for validation and
+ * for preserving a previously saved custom role.
+ */
+export const TARGET_ROLE_GROUPS = [
+  {
+    label: 'Software Engineering',
+    roles: [
+      'Software Engineer',
+      'Full Stack Developer',
+      'Frontend Developer',
+      'Backend Developer',
+      'Mobile Developer',
+      'Android Developer',
+      'iOS Developer',
+      'QA / Test Engineer',
+    ],
+  },
+  {
+    label: 'Data & AI',
+    roles: [
+      'ML Engineer',
+      'AI Engineer',
+      'Data Scientist',
+      'Data Analyst',
+      'Business Intelligence Analyst',
+    ],
+  },
+  {
+    label: 'Cloud & DevOps',
+    roles: [
+      'DevOps Engineer',
+      'Cloud Engineer',
+      'Site Reliability Engineer',
+      'Platform Engineer',
+    ],
+  },
+];
+
+export const TARGET_ROLE_OPTIONS = TARGET_ROLE_GROUPS.flatMap((group) => group.roles);
+
 export const KNOWN_SKILLS = [
   // Web & Full Stack
   'React', 'React.js', 'Next.js', 'Vue', 'Angular', 'TypeScript', 'JavaScript', 'HTML5', 'CSS3', 'TailwindCSS',
@@ -58,7 +100,7 @@ export const getRoleCategory = (role = '') => {
   if (r.includes('ml') || r.includes('machine learning') || r.includes('ai') || r.includes('artificial intelligence') || r.includes('deep learning') || r.includes('computer vision') || r.includes('nlp')) {
     return 'ml';
   }
-  if (r.includes('data science') || r.includes('data scientist') || r.includes('data analyst') || r.includes('analytics') || r.includes('bi analyst')) {
+  if (r.includes('data science') || r.includes('data scientist') || r.includes('data analyst') || r.includes('analytics') || r.includes('bi analyst') || r.includes('business intelligence')) {
     return 'data';
   }
   if (r.includes('frontend') || r.includes('front-end') || r.includes('react') || r.includes('ui') || r.includes('web developer')) {
@@ -67,7 +109,7 @@ export const getRoleCategory = (role = '') => {
   if (r.includes('backend') || r.includes('back-end') || r.includes('node') || r.includes('java') || r.includes('api') || r.includes('spring') || r.includes('django')) {
     return 'backend';
   }
-  if (r.includes('devops') || r.includes('cloud') || r.includes('docker') || r.includes('kubernetes') || r.includes('platform') || r.includes('sre') || r.includes('infrastructure')) {
+  if (r.includes('devops') || r.includes('cloud') || r.includes('docker') || r.includes('kubernetes') || r.includes('platform') || r.includes('sre') || r.includes('reliability') || r.includes('infrastructure')) {
     return 'devops';
   }
   if (r.includes('mobile') || r.includes('android') || r.includes('ios') || r.includes('flutter') || r.includes('react native')) {

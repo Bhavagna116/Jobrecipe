@@ -7,7 +7,9 @@ import {
   analyzeRoleSkillGaps,
   getRoleDefaults,
   readResumeFile,
-  looksLikeResume
+  looksLikeResume,
+  TARGET_ROLE_GROUPS,
+  TARGET_ROLE_OPTIONS
 } from '../../utils/resumeParser';
 import {
   getFaceLandmarker,
@@ -63,16 +65,6 @@ import {
   Minimize,
   Info
 } from 'lucide-react';
-
-const PRESET_ROLES = [
-  'ML Engineer',
-  'Software Engineer',
-  'Full Stack Developer',
-  'Frontend Developer',
-  'Backend Developer',
-  'Data Scientist',
-  'DevOps Engineer'
-];
 
 const SAMPLE_ML_RESUME = `Pera Vishnuvardhan Reddy - Machine Learning Engineer
 Summary: Passionate ML Engineer experienced in building predictive models, data preprocessing pipelines, and model evaluation with Python, Scikit-Learn, and PyTorch.
@@ -832,7 +824,7 @@ export const AIMockInterviewPage = () => {
   };
 
   const handleRoleChange = (newRole) => {
-    // Preserve user input verbatim: allows deleting, backspacing to empty, and typing spaces
+    // The dropdown supplies a valid role; keep state and localStorage in sync.
     setTargetRole(newRole);
     setRoleInput(newRole);
     localStorage.setItem('rsj_selected_role', newRole);
@@ -3579,34 +3571,31 @@ export const AIMockInterviewPage = () => {
               </div>
             )}
 
-            {/* TARGET ROLE INPUT FIELD (Picture 1) */}
+            {/* TARGET ROLE DROPDOWN */}
             <div className="mt-6">
               <label className="block text-xs sm:text-sm font-bold text-slate-800 mb-2 font-sans">
-                Target Role <span className="text-slate-400 font-normal">(Enter Manually)</span>
+                Target Role <span className="text-slate-400 font-normal">(Select from the list)</span>
               </label>
 
-              <div className="relative">
-                <input
-                  type="text"
-                  value={targetRole}
-                  onChange={(e) => handleRoleChange(e.target.value)}
-                  placeholder="e.g. Data Scientist, ML Engineer, Software Engineer"
-                  className="w-full bg-slate-50/80 hover:bg-white focus:bg-white border border-slate-200 hover:border-slate-300 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 rounded-xl px-4 py-3 pr-10 text-sm text-slate-900 placeholder-slate-400 focus:outline-none transition-all shadow-xs font-sans font-medium"
-                />
-                {targetRole && (
-                  <button
-                    type="button"
-                    onClick={() => handleRoleChange('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-all cursor-pointer"
-                    title="Clear input"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+              <select
+                value={targetRole}
+                onChange={(e) => handleRoleChange(e.target.value)}
+                className="w-full bg-slate-50/80 hover:bg-white focus:bg-white border border-slate-200 hover:border-slate-300 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 rounded-xl px-4 py-3 text-sm text-slate-900 focus:outline-none transition-all shadow-xs font-sans font-medium cursor-pointer"
+              >
+                {targetRole && !TARGET_ROLE_OPTIONS.includes(targetRole) && (
+                  <option value={targetRole}>{targetRole}</option>
                 )}
-              </div>
+                {TARGET_ROLE_GROUPS.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.roles.map((role) => (
+                      <option key={role} value={role}>{role}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
 
               <p className="mt-2 text-[11px] text-slate-500 font-sans">
-                Type your desired job role above (e.g. Data Scientist, ML Engineer, Full Stack Developer, etc.). The interview questions and ATS benchmark calibrate automatically.
+                Pick the role you are targeting. The interview questions and ATS benchmark calibrate automatically.
               </p>
             </div>
 
