@@ -440,7 +440,9 @@ export const AdminAssessmentsPage = () => {
   };
 
   const goToWizardStep = (num) => {
-    if (num === 2 && newAssessment.selectedQuestionIds.length === 0) {
+    // If the admin skips straight to Preview/Publish, materialize the
+    // per-section picks first so the summary and final save are not empty.
+    if (num >= 2 && newAssessment.selectedQuestionIds.length === 0) {
       handleAutoSelectBySections();
     }
     setWizardStep(num);
@@ -532,6 +534,12 @@ export const AdminAssessmentsPage = () => {
         const q = questionBank.find(item => item.id === id);
         return q && !isCodingQuestion(q);
       });
+    }
+
+    if (finalSelectedQuestionIds.length === 0) {
+      addToast('No questions selected. Open Step 2 and pick questions first.', 'error');
+      setWizardStep(2);
+      return;
     }
 
     const actualTotalQuestions = (finalSelectedQuestionIds && finalSelectedQuestionIds.length > 0)
@@ -1449,14 +1457,34 @@ export const AdminAssessmentsPage = () => {
                 </div>
 
                 <div className="flex justify-between">
+                  <span className="text-slate-500">Paper Sets:</span>
+                  <strong className="text-slate-900">
+                    {['A', 'B', 'C'].slice(0, Math.min(3, Math.max(1, Number(newAssessment.setCount) || 1))).join(' · ')}
+                  </strong>
+                </div>
+
+                <div className="flex justify-between">
                   <span className="text-slate-500">Questions Assigned:</span>
-                  <strong className={isCodingTrack || isFullTrack ? 'text-indigo-600' : 'text-brand-600'}>
-                    {(isCodingTrack || isFullTrack)
-                      ? newAssessment.selectedQuestionIds.length
-                      : newAssessment.selectedQuestionIds.filter(id => {
-                          const q = questionBank.find(item => item.id === id);
-                          return q && !isCodingQuestion(q);
-                        }).length} Questions
+                  <strong className={`text-right ${isCodingTrack || isFullTrack ? 'text-indigo-600' : 'text-brand-600'}`}>
+                    {(() => {
+                      const perSet = (isCodingTrack || isFullTrack)
+                        ? newAssessment.selectedQuestionIds.length
+                        : newAssessment.selectedQuestionIds.filter(id => {
+                            const q = questionBank.find(item => item.id === id);
+                            return q && !isCodingQuestion(q);
+                          }).length;
+                      const setCount = Math.min(3, Math.max(1, Number(newAssessment.setCount) || 1));
+                      return (
+                        <>
+                          {perSet} Questions per set
+                          {setCount > 1 && (
+                            <span className="block text-[10px] font-bold text-slate-500">
+                              {setCount} sets · {perSet * setCount} questions total
+                            </span>
+                          )}
+                        </>
+                      );
+                    })()}
                   </strong>
                 </div>
 
