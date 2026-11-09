@@ -178,6 +178,11 @@ export const AppProvider = ({ children }) => {
   // Used by catalog pages to render skeleton loaders instead of an empty state.
   const [assessmentsLoading, setAssessmentsLoading] = useState(true);
 
+  // True while candidate submissions are being fetched. The /interview route
+  // waits for this (and assessmentsLoading) before choosing its layout, so the
+  // interview page is not mounted twice (locked shell -> fullscreen runner).
+  const [submissionsLoading, setSubmissionsLoading] = useState(true);
+
   const DUMMY_Q_IDS = ['q-101', 'q-102', 'q-103', 'q-104', 'q-105', 'q-106', 'q-107', 'q-108', 'q-109', 'q-110'];
 
   const [questionBank, setQuestionBank] = useState(() => {
@@ -272,12 +277,14 @@ export const AppProvider = ({ children }) => {
   //   requireAssessmentFirst: when false, the interview is open to every candidate
   //                           regardless of assessment completion
   const [interviewSettings, setInterviewSettings] = useState(null);
+  const [interviewSettingsLoaded, setInterviewSettingsLoaded] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetch(apiUrl('/api/interview/settings'))
       .then((r) => r.json())
       .then((d) => { if (!cancelled && d?.success && d.settings) setInterviewSettings(d.settings); })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setInterviewSettingsLoaded(true); });
     return () => { cancelled = true; };
   }, []);
 
@@ -426,51 +433,15 @@ export const AppProvider = ({ children }) => {
         return;
       }
       try {
-        // Fire the submissions sync in parallel with the session check instead
-        // of waiting for /auth/me first (saves a full round-trip on load).
-        const submissionsPromise = api.submissions.my().catch(() => null);
         const res = await api.auth.me();
         if (res.ok && res.data) {
           const candidateObj = res.data.candidate || (res.data.role === 'candidate' ? res.data.user : null);
           if (res.data.role === 'candidate' && candidateObj) {
             setCurrentUser(candidateObj);
             setRole('candidate');
-            // Synchronize candidate submissions from DB
-            try {
-              const subRes = await submissionsPromise;
-              const subList = Array.isArray(subRes?.data?.data)
-                ? subRes.data.data
-                : (Array.isArray(subRes?.data) ? subRes.data : []);
-              if (subRes?.ok && Array.isArray(subList)) {
-                setCandidateSubmissions(subList);
-                try { localStorage.setItem('rsj_candidate_submissions', JSON.stringify(subList)); } catch(e){}
-                if (subList.length > 0) {
-                  const latest = subList[0];
-                  const mappedResult = {
-                    score: Number(latest.score ?? 0),
-                    totalMarks: Number(latest.total_marks ?? 100),
-                    obtainedMarks: Number(latest.obtained_marks ?? latest.score ?? 0),
-                    accuracy: Number(latest.accuracy ?? latest.score ?? 0),
-                    correctCount: Number(latest.correct_count ?? 0),
-                    incorrectCount: Number(latest.incorrect_count ?? 0),
-                    unansweredCount: Number(latest.unanswered_count ?? 0),
-                    timeTaken: latest.time_taken || '28 min',
-                    completedAt: new Date(latest.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-                    assessmentName: latest.assessment_title || 'Technical Assessment',
-                    assessmentId: latest.assessment_id,
-                    categoryScores: typeof latest.category_scores === 'string' ? JSON.parse(latest.category_scores) : (latest.category_scores || {}),
-                    topicBreakdown: typeof latest.topic_breakdown === 'string' ? JSON.parse(latest.topic_breakdown) : (latest.topic_breakdown || []),
-                  };
-                  setLatestResult(mappedResult);
-                  try { localStorage.setItem('rsj_latest_result', JSON.stringify(mappedResult)); } catch(e){}
-                } else {
-                  setLatestResult(null);
-                  try { localStorage.removeItem('rsj_latest_result'); } catch(e){}
-                }
-              }
-            } catch (subErr) {
-              console.warn('Could not sync latest candidate submission:', subErr.message);
-            }
+            // Candidate submissions (and the latest result) are synced by the
+            // dedicated effect below, which also covers the login flow. Fetching
+            // them here as well duplicated /api/submissions/my on every load.
           } else if (res.data.role === 'admin' && (res.data.user || res.data.admin)) {
             setAdminUser(res.data.user || res.data.admin);
             setRole('admin');
@@ -495,6 +466,7 @@ export const AppProvider = ({ children }) => {
     const syncSubmissions = async () => {
       const token = localStorage.getItem('rsj_token');
       if (token && currentUser && role === 'candidate') {
+        setSubmissionsLoading(true);
         try {
           const subRes = await api.submissions.my();
           const subList = Array.isArray(subRes?.data?.data)
@@ -527,7 +499,12 @@ export const AppProvider = ({ children }) => {
               try { localStorage.removeItem('rsj_latest_result'); } catch(e){}
             }
           }
-        } catch (e) {}
+        } catch (e) {
+        } finally {
+          if (isMounted) setSubmissionsLoading(false);
+        }
+      } else {
+        setSubmissionsLoading(false);
       }
     };
     syncSubmissions();
@@ -599,7 +576,9 @@ export const AppProvider = ({ children }) => {
     }
   }, []);
 
-  // Sync questions from backend API
+  // Sync questions from backend API.
+  // Returns the mapped question list so callers can lazily load the bank on
+  // demand (candidates no longer fetch the whole 500+ question bank on login).
   const fetchQuestions = React.useCallback(async () => {
     try {
       const res = await api.questions.getAll();
@@ -638,10 +617,12 @@ export const AppProvider = ({ children }) => {
         try {
           localStorage.setItem('rsj_question_bank', JSON.stringify(mapped));
         } catch (e) {}
+        return mapped;
       }
     } catch (err) {
       console.warn('Backend questions sync warning:', err.message);
     }
+    return [];
   }, []);
 
   // Sync candidates list from backend API
@@ -706,12 +687,29 @@ export const AppProvider = ({ children }) => {
   // Sync assessments, question bank, and candidate roster from the database,
   // but only for authenticated sessions. Guests on the landing / login / signup
   // pages must not trigger these protected API calls.
+  //
+  // The full question bank is only needed by admin authoring screens and as a
+  // grading fallback when an assessment starts. Candidates used to download all
+  // ~500 questions (≈400 KB) on every page load — including the resume-upload /
+  // interview page, which never uses them. It is now loaded lazily instead.
+  //
+  // `syncedKeyRef` prevents a duplicate sync when `currentUser` is replaced by
+  // the /auth/me response (same role, new object/id).
+  const syncedKeyRef = React.useRef(null);
   useEffect(() => {
-    if (role !== 'candidate' && role !== 'admin') return;
+    if (role !== 'candidate' && role !== 'admin') {
+      syncedKeyRef.current = null;
+      return;
+    }
+    if (syncedKeyRef.current === role) return;
+    syncedKeyRef.current = role;
+
     fetchAssessments();
-    fetchQuestions();
-    if (role === 'admin') fetchCandidates();
-  }, [fetchAssessments, fetchQuestions, fetchCandidates, currentUser?.id, role]);
+    if (role === 'admin') {
+      fetchQuestions();
+      fetchCandidates();
+    }
+  }, [fetchAssessments, fetchQuestions, fetchCandidates, role, currentUser?.id]);
 
   useEffect(() => {
     localStorage.setItem('rsj_question_bank', JSON.stringify(questionBank));
@@ -880,6 +878,9 @@ export const AppProvider = ({ children }) => {
         graduationYear: formData.graduationYear || 2026,
         graduation_year: formData.graduationYear || 2026,
         experienceLevel: formData.experienceLevel || 'Fresher',
+        gender: formData.gender,
+        rollNumber: formData.rollNumber,
+        roll_number: formData.rollNumber,
         tenthSchool: formData.tenthSchool,
         tenth_school: formData.tenthSchool,
         tenthMarks: formData.tenthMarks,
@@ -920,6 +921,9 @@ export const AppProvider = ({ children }) => {
         graduationYear: formData.graduationYear || 2026,
         graduation_year: formData.graduationYear || 2026,
         experienceLevel: formData.experienceLevel || 'Fresher',
+        gender: formData.gender,
+        rollNumber: formData.rollNumber,
+        roll_number: formData.rollNumber,
         tenthSchool: formData.tenthSchool,
         tenth_school: formData.tenthSchool,
         tenthMarks: formData.tenthMarks,
@@ -971,39 +975,11 @@ export const AppProvider = ({ children }) => {
 
       setCurrentUser(cand);
       setRole('candidate');
-      try {
-        const subRes = await api.submissions.my();
-        const subList = Array.isArray(subRes?.data?.data)
-          ? subRes.data.data
-          : (Array.isArray(subRes?.data) ? subRes.data : []);
-        if (subRes.ok && Array.isArray(subList)) {
-          setCandidateSubmissions(subList);
-          if (subList.length > 0) {
-            const latest = subList[0];
-            const mappedResult = {
-              score: Number(latest.score ?? 0),
-              totalMarks: Number(latest.total_marks ?? 100),
-              obtainedMarks: Number(latest.obtained_marks ?? latest.score ?? 0),
-              accuracy: Number(latest.accuracy ?? latest.score ?? 0),
-              correctCount: Number(latest.correct_count ?? 0),
-              incorrectCount: Number(latest.incorrect_count ?? 0),
-              unansweredCount: Number(latest.unanswered_count ?? 0),
-              timeTaken: latest.time_taken || '28 min',
-              completedAt: new Date(latest.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-              assessmentName: latest.assessment_title || 'Technical Assessment',
-              assessmentId: latest.assessment_id,
-              categoryScores: typeof latest.category_scores === 'string' ? JSON.parse(latest.category_scores) : (latest.category_scores || {}),
-              topicBreakdown: typeof latest.topic_breakdown === 'string' ? JSON.parse(latest.topic_breakdown) : (latest.topic_breakdown || []),
-            };
-            setLatestResult(mappedResult);
-          } else {
-            setLatestResult(null);
-          }
-        } else {
-          setCandidateSubmissions([]);
-          setLatestResult(null);
-        }
-      } catch (e) {}
+      // Submissions are fetched by the dedicated sync effect (triggered by the
+      // currentUser change above), so we do not fetch them again here. Clear
+      // any previous session's data while that request is in flight.
+      setCandidateSubmissions([]);
+      setLatestResult(null);
       addToast(`Welcome back, ${cand.name || 'Candidate'}! Directing to your exam assessments.`, 'success');
       setCurrentView('assessments');
       navigateTo('assessments');
@@ -1096,6 +1072,13 @@ export const AppProvider = ({ children }) => {
 
     let finalUniqueQuestions = [];
 
+    // Candidates no longer preload the full question bank, so load it lazily
+    // here when it is needed as a grading/option fallback.
+    let bank = questionBank;
+    if (!Array.isArray(bank) || bank.length === 0) {
+      try { bank = (await fetchQuestions()) || []; } catch (e) { bank = []; }
+    }
+
     // 1. Fetch official questions from PostgreSQL backend API
     try {
       const qRes = await api.assessments.getQuestions(asm.id);
@@ -1105,9 +1088,9 @@ export const AppProvider = ({ children }) => {
       if (list.length > 0) {
         finalUniqueQuestions = list.map(q => {
           const qId = q.question_id || q.id;
-          const bankMatch = questionBank.find(bq => bq.id === qId) ||
+          const bankMatch = bank.find(bq => bq.id === qId) ||
                             INITIAL_QUESTION_BANK.find(bq => bq.id === qId) ||
-                            questionBank.find(bq => bq.question?.trim().toLowerCase() === q.question?.trim().toLowerCase()) ||
+                            bank.find(bq => bq.question?.trim().toLowerCase() === q.question?.trim().toLowerCase()) ||
                             INITIAL_QUESTION_BANK.find(bq => bq.question?.trim().toLowerCase() === q.question?.trim().toLowerCase());
 
           const isCoding = q.type === 'Coding' || q.category === 'Coding' || bankMatch?.category === 'Coding';
@@ -1142,7 +1125,7 @@ export const AppProvider = ({ children }) => {
     if (finalUniqueQuestions.length === 0) {
       // Deduplicate question bank by ID and statement
       const uniquePoolMap = new Map();
-      questionBank.forEach(q => {
+      bank.forEach(q => {
         if (q && q.id && q.question) {
           const key = `${q.id}-${q.question.trim().toLowerCase()}`;
           if (!uniquePoolMap.has(key)) {
@@ -1259,10 +1242,17 @@ export const AppProvider = ({ children }) => {
   };
 
   const submitAssessment = async (answers, timeSpentMin = 28, metadata = {}) => {
+    // Ensure the question bank is available as a grading fallback (it is no
+    // longer preloaded for candidates).
+    let bank = questionBank;
+    if (!Array.isArray(bank) || bank.length === 0) {
+      try { bank = (await fetchQuestions()) || []; } catch (e) { bank = []; }
+    }
+
     // Generate calculated score for the active assessment's exact questions
     const asmQuestions = (activeAssessment?.questions && activeAssessment.questions.length > 0)
       ? activeAssessment.questions
-      : questionBank;
+      : bank;
     const totalQuestions = asmQuestions.length || 1;
 
     let totalPossibleMarks = 0;
@@ -1281,9 +1271,9 @@ export const AppProvider = ({ children }) => {
 
       let correctAns = (q.correctAnswer || q.correct_answer || '').trim();
       if (!correctAns) {
-        const bankMatch = questionBank.find(bq => bq.id === q.id) ||
+        const bankMatch = bank.find(bq => bq.id === q.id) ||
                           INITIAL_QUESTION_BANK.find(bq => bq.id === q.id) ||
-                          questionBank.find(bq => bq.question?.trim().toLowerCase() === q.question?.trim().toLowerCase()) ||
+                          bank.find(bq => bq.question?.trim().toLowerCase() === q.question?.trim().toLowerCase()) ||
                           INITIAL_QUESTION_BANK.find(bq => bq.question?.trim().toLowerCase() === q.question?.trim().toLowerCase());
         correctAns = (bankMatch?.correctAnswer || bankMatch?.correct_answer || '').trim();
       }
@@ -2084,6 +2074,7 @@ export const AppProvider = ({ children }) => {
         navigateTo,
         assessments,
         assessmentsLoading,
+        submissionsLoading,
         questionBank,
         candidatesList,
         recommendations,
@@ -2129,6 +2120,8 @@ export const AppProvider = ({ children }) => {
         isAssessmentCompleted,
         areAllAssessmentsCompleted,
         isInterviewUnlocked,
+        interviewSettings,
+        interviewSettingsLoaded,
         interviewHardLocked,
         interviewOpenForAll,
         kpis: INITIAL_ADMIN_KPIS,

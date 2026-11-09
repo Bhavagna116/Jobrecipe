@@ -153,7 +153,7 @@ function describeMediaError(err) {
 
 export const AIMockInterviewPage = () => {
   const navigate = useNavigate();
-  const { navigateTo, currentUser, role, adminUser, candidateSubmissions, assessments, isAssessmentCompleted, addToast, startAssessment, isInterviewUnlocked } = useApp();
+  const { navigateTo, currentUser, role, adminUser, candidateSubmissions, assessments, isAssessmentCompleted, addToast, startAssessment, isInterviewUnlocked, interviewSettings } = useApp();
 
   // The interviewer is always the opposite gender of the candidate:
   // male candidate -> female interviewer, female candidate -> male interviewer.
@@ -176,32 +176,19 @@ export const AIMockInterviewPage = () => {
     }
   };
 
-  // Admin Configuration State (Synced with Backend Admin Portal)
-  const [adminSettings, setAdminSettings] = useState({
+  // Admin configuration comes from AppContext (already fetched globally), so
+  // this page does not need its own /api/interview/settings request.
+  const adminSettings = interviewSettings || {
     isLocked: false,
     lockReason: 'AI Mock Interview sessions are currently locked by the administrator.',
     questionCount: 3,
     difficulty: 'Moderate',
     maxWarnings: 3
-  });
+  };
 
   // Configurable attempt limit status (INTERVIEW_MAX_ATTEMPTS on the backend).
   const [interviewAttempts, setInterviewAttempts] = useState(null);
   const [attemptLockMessage, setAttemptLockMessage] = useState('');
-
-  useEffect(() => {
-    fetch(apiUrl('/api/interview/settings'))
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.settings) {
-          setAdminSettings({
-            ...data.settings,
-            questionCount: data.settings.questionCount || 3
-          });
-        }
-      })
-      .catch((err) => console.warn('Settings fetch notice:', err.message));
-  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('rsj_token') || localStorage.getItem('token');
@@ -2640,9 +2627,6 @@ export const AIMockInterviewPage = () => {
           {/* Studio Top Control Bar */}
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-card px-5 py-3.5 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-600 to-brand-600 flex items-center justify-center text-white shadow-xs">
-                {/* <BrainCircuit className="w-4 h-4" /> */}
-              </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-black tracking-wide text-slate-900 font-sans uppercase">ReadySetJob AI Interview Studio</span>
                 <span className="text-[10px] text-brand-700 font-mono font-bold px-2.5 py-0.5 rounded-full bg-brand-50 border border-brand-200 hidden sm:inline">VERIFIED EVALUATION</span>
@@ -3113,9 +3097,6 @@ export const AIMockInterviewPage = () => {
         {/* Studio Top Control Bar */}
         <div className="relative z-10 w-full max-w-5xl mx-auto flex items-center justify-between pb-4 mb-4 border-b border-slate-200/90">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-600 to-brand-600 flex items-center justify-center text-white shadow-xs">
-              {/* <BrainCircuit className="w-4 h-4" /> */}
-            </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-black tracking-wide text-slate-900 font-sans uppercase">ReadySetJob AI Interview Studio</span>
               <span className="text-[10px] text-brand-700 font-mono font-bold px-2.5 py-0.5 rounded-full bg-brand-50 border border-brand-200 hidden sm:inline">FULLSCREEN</span>
@@ -3491,9 +3472,6 @@ export const AIMockInterviewPage = () => {
         {/* Studio Top Control Bar */}
         <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs px-4 py-2 shrink-0 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-600 to-brand-600 flex items-center justify-center text-white shadow-xs">
-              {/* <BrainCircuit className="w-3.5 h-3.5" /> */}
-            </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-black tracking-wide text-slate-900 font-sans uppercase">ReadySetJob AI Interview Studio</span>
               <span className="text-[10px] text-brand-600 font-mono font-bold px-2 py-0.5 rounded-full bg-brand-50 border border-brand-200 hidden sm:inline">FULLSCREEN</span>

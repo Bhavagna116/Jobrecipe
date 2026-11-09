@@ -160,7 +160,26 @@ function ShellLayout({ children }) {
 
 // ── Interview route: locked state uses the normal shell, live interview is full-screen ──
 function InterviewRoute() {
-  const { role, adminUser, assessments, candidateSubmissions, isAssessmentCompleted, interviewHardLocked, interviewOpenForAll } = useApp();
+  const {
+    role, adminUser, assessments, candidateSubmissions, isAssessmentCompleted,
+    interviewHardLocked, interviewOpenForAll, assessmentsLoading, submissionsLoading,
+    interviewSettingsLoaded
+  } = useApp();
+
+  // Wait for the gate inputs before choosing a layout. Rendering the locked
+  // shell first and swapping to the fullscreen runner afterwards remounts
+  // AIMockInterviewPage and re-fires its requests (e.g. attempt status).
+  const isAuthenticated = role === 'candidate' || role === 'admin';
+  const waitingForGate = isAuthenticated && (assessmentsLoading || submissionsLoading || !interviewSettingsLoaded);
+  if (waitingForGate) {
+    return (
+      <div className="h-screen w-full bg-[#F8FAFC] flex flex-col items-center justify-center gap-3 text-slate-500">
+        <div className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-brand-600 animate-spin" />
+        <p className="text-xs font-semibold tracking-wide uppercase">Preparing interview…</p>
+      </div>
+    );
+  }
+
   const locked = isInterviewLocked({ role, adminUser, assessments, candidateSubmissions, isAssessmentCompleted, interviewHardLocked, interviewOpenForAll });
 
   if (locked) {
