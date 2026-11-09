@@ -390,12 +390,8 @@ export const CandidateDashboard = () => {
                       {asm.description}
                     </p>
 
-                    <div className="grid grid-cols-3 gap-1 my-4 p-2.5 bg-slate-50 border border-slate-100 rounded-xl text-center text-xs">
-                      <div className="px-1">
-                        <span className="text-slate-400 block text-[10px] font-semibold uppercase tracking-tight">Difficulty</span>
-                        <strong className="text-slate-800 font-bold block mt-0.5">{asm.difficulty || 'Medium'}</strong>
-                      </div>
-                      <div className="px-1 border-x border-slate-200/60">
+                    <div className="grid grid-cols-2 gap-1 my-4 p-2.5 bg-slate-50 border border-slate-100 rounded-xl text-center text-xs">
+                      <div className="px-1 border-r border-slate-200/60">
                         <span className="text-slate-400 block text-[10px] font-semibold uppercase tracking-tight">Questions</span>
                         <strong className="text-slate-800 font-bold block mt-0.5">{asm.totalQuestions || asm.total_questions || (asm.category === 'Coding' ? 4 : 10)} Qs</strong>
                       </div>

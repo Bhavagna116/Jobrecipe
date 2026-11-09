@@ -832,19 +832,6 @@ export const AdminAssessmentsPage = () => {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Target Difficulty</label>
-                  <select
-                    value={newAssessment.difficulty}
-                    onChange={(e) => setNewAssessment({ ...newAssessment, difficulty: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border border-slate-200 outline-none font-bold text-slate-800"
-                  >
-                    <option value="Easy">Easy (Foundation)</option>
-                    <option value="Medium">Medium (Industry Standard)</option>
-                    <option value="Hard">Hard (Competitive / Senior)</option>
-                  </select>
-                </div>
-
-                <div>
                   <label className="block font-bold text-slate-700 mb-1">Description</label>
                   <textarea
                     rows={2}
@@ -1350,7 +1337,7 @@ export const AdminAssessmentsPage = () => {
           isOpen={!!previewAsm}
           onClose={() => setPreviewAsm(null)}
           title={`Assessment Preview: ${previewAsm.title}`}
-          subtitle={`${previewAsm.category} • ${previewAsm.difficulty} • ${previewAsm.durationMinutes} min`}
+          subtitle={`${previewAsm.category} • ${previewAsm.durationMinutes} min`}
         >
           <div className="space-y-4 text-xs">
             <p className="text-slate-600 leading-relaxed">{previewAsm.description}</p>
