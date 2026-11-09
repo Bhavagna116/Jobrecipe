@@ -86,6 +86,55 @@ const sectionOfQuestion = (q) => {
   return SECTION_DEFS.some((s) => s.key === cat) ? cat : null;
 };
 
+/**
+ * Preview the auto-generated paper sets using the same category/topic/
+ * difficulty matching and exclusion rules as the backend generator.
+ * Set A is the authored paper; B/C are drawn from the remaining bank.
+ */
+const buildPreviewSets = (setAQuestions, questionBank, setCount) => {
+  const base = Array.isArray(setAQuestions) ? setAQuestions.filter(Boolean) : [];
+  const sets = [{ code: 'A', questions: base, auto: false }];
+  const count = Math.min(3, Math.max(1, Number(setCount) || 1));
+  if (count <= 1 || base.length === 0) return sets;
+
+  const used = new Set(base.map((q) => q.id));
+  const bank = Array.isArray(questionBank) ? questionBank : [];
+
+  for (let i = 1; i < count; i++) {
+    const picked = [];
+    const pickedIds = new Set();
+
+    for (const target of base) {
+      const catKey = String(target.category || '').trim().toLowerCase();
+      const topicKey = String(target.topic || '').trim().toLowerCase();
+      const diffKey = String(target.difficulty || '').trim().toLowerCase();
+
+      const candidates = bank.filter((q) => {
+        if (!q?.id || used.has(q.id) || pickedIds.has(q.id)) return false;
+        if (String(q.category || '').trim().toLowerCase() !== catKey) return false;
+        if (q.status != null && String(q.status).toLowerCase() !== 'active') return false;
+        return true;
+      });
+
+      const pick =
+        candidates.find((q) => String(q.topic || '').trim().toLowerCase() === topicKey &&
+          String(q.difficulty || '').trim().toLowerCase() === diffKey) ||
+        candidates.find((q) => String(q.topic || '').trim().toLowerCase() === topicKey) ||
+        candidates.find((q) => String(q.difficulty || '').trim().toLowerCase() === diffKey) ||
+        candidates[0];
+
+      if (!pick) continue;
+      picked.push(pick);
+      pickedIds.add(pick.id);
+      used.add(pick.id);
+    }
+
+    sets.push({ code: String.fromCharCode(65 + i), questions: picked, auto: true });
+  }
+
+  return sets;
+};
+
 const deriveSectionCounts = (ids, questionBank) => {
   const counts = { coding: 0, aptitude: 0, reasoning: 0, technical: 0, verbal: 0 };
   (ids || []).forEach((id) => {
@@ -131,6 +180,7 @@ export const AdminAssessmentsPage = () => {
   const [collegesList, setCollegesList] = useState([]);
   const [collegesLoading, setCollegesLoading] = useState(true);
   const [collegesReloadKey, setCollegesReloadKey] = useState(0);
+  const [previewSetCode, setPreviewSetCode] = useState('A');
 
   // Wizard state — a single unified assessment may mix coding + MCQ questions
   const [newAssessment, setNewAssessment] = useState({
@@ -272,6 +322,7 @@ export const AdminAssessmentsPage = () => {
       tags: ['Coding', 'MCQ', 'Full Assessment']
     });
     setWizardStep(1);
+    setPreviewSetCode('A');
     setIsWizardOpen(true);
   };
 
@@ -452,6 +503,7 @@ export const AdminAssessmentsPage = () => {
       tags: asm.tags || ['DSA', 'Algorithms']
     });
     setWizardStep(1);
+    setPreviewSetCode('A');
     setIsWizardOpen(true);
   };
 
@@ -1005,64 +1057,108 @@ export const AdminAssessmentsPage = () => {
             const selected = newAssessment.selectedQuestionIds
               .map(id => questionBank.find(q => q.id === id))
               .filter(Boolean);
+            const setCount = Math.min(3, Math.max(1, Number(newAssessment.setCount) || 1));
+            const previewSets = buildPreviewSets(selected, questionBank, setCount);
+            const activeCode = previewSets.some(s => s.code === previewSetCode) ? previewSetCode : 'A';
+            const activeSet = previewSets.find(s => s.code === activeCode) || previewSets[0];
+            const isAuthoredSet = activeCode === 'A';
             const grouped = SECTION_DEFS.map(sec => ({
               sec,
-              items: selected.filter(q => sectionOfQuestion(q) === sec.key)
+              items: activeSet.questions.filter(q => sectionOfQuestion(q) === sec.key)
             }));
             const needed = sumSectionCounts(newAssessment.sectionCounts);
+            const activeCount = activeSet.questions.length;
 
             return (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h3 className="text-sm font-bold text-slate-900">
-                    2. Auto-Picked Questions
+                    2. Question Paper Sets
                   </h3>
                   <div className="flex items-center gap-2">
                     <span className={`font-bold text-xs px-2.5 py-1 rounded-md border ${
-                      selected.length === needed
+                      activeCount === needed
                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                         : 'bg-amber-50 text-amber-700 border-amber-200'
                     }`}>
-                      {selected.length} / {needed} Selected
+                      Set {activeCode}: {activeCount} / {needed}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => handleAutoSelectBySections(true)}
-                      className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-brand-600 hover:from-indigo-700 hover:to-brand-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5"
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      <span>Re-Pick Questions</span>
-                    </button>
+                    {isAuthoredSet && (
+                      <button
+                        type="button"
+                        onClick={() => handleAutoSelectBySections(true)}
+                        className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-brand-600 hover:from-indigo-700 hover:to-brand-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span>Re-Pick Section A</span>
+                      </button>
+                    )}
                   </div>
+                </div>
+
+                {/* Set selector */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {previewSets.map((set) => (
+                    <button
+                      key={set.code}
+                      type="button"
+                      onClick={() => setPreviewSetCode(set.code)}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-2 ${
+                        activeCode === set.code
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Set {set.code}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-extrabold ${
+                        activeCode === set.code ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {set.questions.length}
+                      </span>
+                      <span className={`text-[9px] uppercase tracking-wide ${
+                        activeCode === set.code ? 'text-white/70' : 'text-slate-400'
+                      }`}>
+                        {set.auto ? 'auto' : 'authored'}
+                      </span>
+                    </button>
+                  ))}
                 </div>
 
                 <div className="p-4 bg-gradient-to-r from-indigo-50/80 to-brand-50/80 border border-brand-200 rounded-2xl">
                   <p className="text-[11px] text-slate-600 leading-relaxed">
-                    Questions were auto-picked per section from the bank using the counts set in step 1. Use Re-Pick to draw a fresh random set, remove any question below, or upload your own via Excel.
+                    {isAuthoredSet
+                      ? 'Set A is the paper you author. Use Re-Pick to draw a fresh set, remove any question below, or upload your own via Excel. Sets B/C are generated from the bank with the same section mix.'
+                      : `Set ${activeCode} is auto-generated from the bank using the same category/topic mix as Set A. This is the set candidates assigned to ${activeCode} will receive; it is finalized when you publish.`}
                   </p>
                 </div>
 
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-xs text-slate-700 font-bold">
-                    <Upload className="w-4 h-4 text-brand-600" />
-                    <span>Upload Questions from Excel (.xlsx) / CSV</span>
+                {isAuthoredSet ? (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs text-slate-700 font-bold">
+                      <Upload className="w-4 h-4 text-brand-600" />
+                      <span>Upload Questions from Excel (.xlsx) / CSV</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={downloadExcelQuestionTemplate}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
+                      >
+                        <Download className="w-3 h-3 text-brand-600" />
+                        <span>Download .xlsx Template</span>
+                      </button>
+                      <label className="px-3 py-1 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1 shadow-2xs">
+                        <Upload className="w-3 h-3" />
+                        <span>Upload Excel File</span>
+                        <input type="file" accept=".xlsx, .xls, .csv" onChange={handleWizardExcelUpload} className="hidden" />
+                      </label>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={downloadExcelQuestionTemplate}
-                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
-                    >
-                      <Download className="w-3 h-3 text-brand-600" />
-                      <span>Download .xlsx Template</span>
-                    </button>
-                    <label className="px-3 py-1 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1 shadow-2xs">
-                      <Upload className="w-3 h-3" />
-                      <span>Upload Excel File</span>
-                      <input type="file" accept=".xlsx, .xls, .csv" onChange={handleWizardExcelUpload} className="hidden" />
-                    </label>
+                ) : (
+                  <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-[11px] text-amber-800 font-medium">
+                    Set {activeCode} is read-only preview. Switch to Set A to edit questions or upload Excel.
                   </div>
-                </div>
+                )}
 
                 <div className="max-h-80 overflow-y-auto space-y-4 pr-1">
                   {grouped.map(({ sec, items }) => {
@@ -1080,7 +1176,9 @@ export const AdminAssessmentsPage = () => {
                         </div>
                         {items.length === 0 ? (
                           <div className="p-3 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-[11px] text-slate-500">
-                            No questions picked for this section.
+                            {isAuthoredSet
+                              ? 'No questions picked for this section.'
+                              : 'Not enough remaining questions in the bank for this section in this set.'}
                           </div>
                         ) : (
                           <div className="space-y-2">
@@ -1099,19 +1197,24 @@ export const AdminAssessmentsPage = () => {
                                       ) : (
                                         <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold text-[9px] shrink-0">MCQ</span>
                                       )}
+                                      {!isAuthoredSet && (
+                                        <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-extrabold text-[9px] shrink-0 border border-emerald-200">Auto</span>
+                                      )}
                                     </div>
                                     <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
                                       <span className="font-bold text-slate-700">{q.category}</span>
                                       <span className="font-medium">{q.difficulty}</span>
                                     </div>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleQuestionSelection(q.id)}
-                                    className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100 transition-all shrink-0"
-                                  >
-                                    Remove
-                                  </button>
+                                  {isAuthoredSet && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleQuestionSelection(q.id)}
+                                      className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100 transition-all shrink-0"
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
                                 </div>
                               );
                             })}
