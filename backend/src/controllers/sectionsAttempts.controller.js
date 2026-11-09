@@ -1,6 +1,6 @@
 import { pool, getDbStatus } from '../db/pool.js';
 import crypto from 'crypto';
-import { clearAssessmentsCache } from './assessments.controller.js';
+import { clearAssessmentsCache, ASSESSMENT_SET_CODES, clampSetCount } from './assessments.controller.js';
 import { fallbackAssessments, fallbackQuestions } from '../mockFallback.js';
 import { serverError } from '../utils/httpError.js';
 
@@ -37,10 +37,14 @@ const QUESTION_SELECT = `
   COALESCE(q.type, CASE WHEN aq.category = 'Coding' THEN 'Coding' ELSE 'Single Choice' END) as type
 `;
 
-const fetchSectionQuestions = async (assessmentId, sectionId, includeAnswer) => {
+const fetchSectionQuestions = async (assessmentId, sectionId, includeAnswer, setCode) => {
   // sectionId present -> scope by section; null/undefined -> whole assessment (implicit section)
   const params = [sectionId || assessmentId];
-  const where = sectionId ? 'aq.section_id = $1' : 'aq.assessment_id = $1';
+  let where = sectionId ? 'aq.section_id = $1' : 'aq.assessment_id = $1';
+  if (setCode) {
+    where += ` AND aq.set_code = $${params.length + 1}`;
+    params.push(setCode);
+  }
   const res = await pool.query(
     `SELECT ${QUESTION_SELECT}
      FROM assessment_questions aq
@@ -83,7 +87,7 @@ export const getAssessmentSections = async (req, res) => {
     const data = [];
 
     for (const sec of sections) {
-      const questions = await fetchSectionQuestions(req.params.id, sec.id, isAdmin);
+      const questions = await fetchSectionQuestions(req.params.id, sec.id, isAdmin, 'A');
       data.push({
         id: sec.id,
         name: sec.name,
@@ -210,7 +214,7 @@ export const replaceAssessmentSections = async (req, res) => {
   }
 };
 
-const buildStartPayload = async (client, attempt, assessment, includeAnswer, answersMap) => {
+const buildStartPayload = async (client, attempt, assessment, includeAnswer, answersMap, setCode) => {
   // Section rows for this attempt (frozen at start time)
   const saRes = await client.query(
     `SELECT sa.id, sa.section_id, sa.status, sa.started_at, sa.time_limit_seconds,
@@ -252,7 +256,7 @@ const buildStartPayload = async (client, attempt, assessment, includeAnswer, ans
     current.started_at = current.started_at || new Date();
   }
 
-  const questions = await fetchSectionQuestions(assessment.id, current?.section_id || null, includeAnswer);
+  const questions = await fetchSectionQuestions(assessment.id, current?.section_id || null, includeAnswer, setCode);
   const timeRemaining = current
     ? (current.status === 'InProgress'
         ? timeRemainingFor(current.started_at, current.time_limit_seconds)
@@ -262,6 +266,7 @@ const buildStartPayload = async (client, attempt, assessment, includeAnswer, ans
   return {
     attemptId: attempt.id,
     resumed: attempt.resumed === true,
+    setCode,
     assessment: {
       id: assessment.id,
       title: assessment.title,
@@ -300,7 +305,7 @@ export const startAssessmentAttempt = async (req, res) => {
     await client.query('BEGIN');
 
     const asmRes = await client.query(
-      `SELECT id, title, category, duration_minutes, passing_score, total_marks, status
+      `SELECT id, title, category, duration_minutes, passing_score, total_marks, status, set_count
        FROM assessments WHERE id = $1`,
       [assessmentId]
     );
@@ -311,7 +316,7 @@ export const startAssessmentAttempt = async (req, res) => {
     const assessment = asmRes.rows[0];
 
     const existingRes = await client.query(
-      `SELECT id, status FROM test_attempts
+      `SELECT id, status, set_code FROM test_attempts
        WHERE candidate_id = $1 AND assessment_id = $2
        ORDER BY created_at DESC LIMIT 1`,
       [candidateId, assessmentId]
@@ -344,11 +349,15 @@ export const startAssessmentAttempt = async (req, res) => {
       resumed = true;
     } else {
       const attemptId = newId('att');
+      // Assign a random paper set to this candidate based on the assessment's set_count.
+      const setCount = clampSetCount(assessment.set_count);
+      const allowedCodes = ASSESSMENT_SET_CODES.slice(0, setCount);
+      const assignedSetCode = allowedCodes[Math.floor(Math.random() * allowedCodes.length)];
       const ins = await client.query(
-        `INSERT INTO test_attempts (id, candidate_id, assessment_id, attempt_number, status, started_at)
-         VALUES ($1, $2, $3, 1, 'InProgress', CURRENT_TIMESTAMP)
-         RETURNING id, status`,
-        [attemptId, candidateId, assessmentId]
+        `INSERT INTO test_attempts (id, candidate_id, assessment_id, attempt_number, status, started_at, set_code)
+         VALUES ($1, $2, $3, 1, 'InProgress', CURRENT_TIMESTAMP, $4)
+         RETURNING id, status, set_code`,
+        [attemptId, candidateId, assessmentId, assignedSetCode]
       );
       attempt = ins.rows[0];
 
@@ -391,7 +400,7 @@ export const startAssessmentAttempt = async (req, res) => {
     }
 
     attempt.resumed = resumed;
-    const payload = await buildStartPayload(client, attempt, assessment, includeAnswer, answersMap);
+    const payload = await buildStartPayload(client, attempt, assessment, includeAnswer, answersMap, attempt.set_code);
 
     await client.query('COMMIT');
     res.status(resumed ? 200 : 201).json({ success: true, data: payload });
@@ -521,7 +530,7 @@ export const completeSection = async (req, res) => {
       [next.id]
     );
 
-    const questions = await fetchSectionQuestions(attempt.assessment_id, next.section_id || null, req.user?.role === 'admin');
+    const questions = await fetchSectionQuestions(attempt.assessment_id, next.section_id || null, req.user?.role === 'admin', attempt.set_code);
 
     res.json({
       success: true,
@@ -599,6 +608,7 @@ export const submitAssessmentAttempt = async (req, res) => {
        JOIN questions q ON q.id = aq.question_id
        LEFT JOIN candidate_answers ca ON ca.attempt_id = ta.id AND ca.question_id = aq.question_id
        WHERE ta.id = $1
+         AND aq.set_code = ta.set_code
          AND ($2::varchar[] IS NULL OR aq.section_id = ANY($2::varchar[]))
        ORDER BY aq.created_at ASC, aq.id ASC`,
       [attemptId, sectionIds.length > 0 ? sectionIds : null]

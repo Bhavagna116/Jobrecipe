@@ -1867,6 +1867,7 @@ export const AppProvider = ({ children }) => {
         durationMinutes: created.durationMinutes,
         totalQuestions: created.totalQuestions,
         passingScore: created.passingScore,
+        setCount: created.setCount,
         selectedQuestionIds: created.selectedQuestionIds || [],
         collegeIds: created.collegeIds || []
       });
@@ -1901,6 +1902,7 @@ export const AppProvider = ({ children }) => {
         totalQuestions: updatedAsm.totalQuestions,
         passingScore: updatedAsm.passingScore,
         status: updatedAsm.status || 'Available',
+        setCount: updatedAsm.setCount,
         selectedQuestionIds: updatedAsm.selectedQuestionIds || [],
         collegeIds: updatedAsm.collegeIds || []
       });

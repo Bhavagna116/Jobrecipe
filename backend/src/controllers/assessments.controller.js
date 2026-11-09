@@ -7,6 +7,20 @@ let assessmentsCache = null;
 let lastAssessmentsFetch = 0;
 const CACHE_TTL_MS = Math.max(0, parseInt(process.env.ASSESSMENTS_CACHE_TTL_MS || '120000', 10));
 
+// A single assessment can carry up to three interchangeable question-paper sets.
+// Set A is the admin-authored paper; B/C are generated from the bank with the
+// same category/topic mix. Each candidate is assigned one set at attempt start.
+export const ASSESSMENT_SET_CODES = ['A', 'B', 'C'];
+export const clampSetCount = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(ASSESSMENT_SET_CODES.length, Math.max(1, Math.floor(n)));
+};
+const normalizeSetCode = (value) => {
+  const code = String(value || '').trim().toUpperCase();
+  return ASSESSMENT_SET_CODES.includes(code) ? code : 'A';
+};
+
 export const clearAssessmentsCache = () => {
   assessmentsCache = null;
   lastAssessmentsFetch = 0;
@@ -24,7 +38,7 @@ export const warmAssessmentsCache = async () => {
       SELECT 
         a.*,
         COALESCE(
-          (SELECT COUNT(*) FROM assessment_questions aq WHERE aq.assessment_id = a.id AND aq.assessment_id IS NOT NULL),
+          (SELECT COUNT(*) FROM assessment_questions aq WHERE aq.assessment_id = a.id AND aq.set_code = 'A'),
           a.total_questions,
           0
         )::int as total_questions,
@@ -33,22 +47,28 @@ export const warmAssessmentsCache = async () => {
           '[]'::json
         ) as college_ids,
         COALESCE(
-          (SELECT json_agg(aq.question_id) FROM assessment_questions aq WHERE aq.assessment_id = a.id),
+          (SELECT json_agg(aq.question_id) FROM assessment_questions aq WHERE aq.assessment_id = a.id AND aq.set_code = 'A'),
           '[]'::json
         ) as selected_question_ids
       FROM assessments a
       WHERE 1=1 AND a.status IS DISTINCT FROM 'Archived'
       ORDER BY a.created_at DESC
     `);
-    const rows = result.rows.map(r => ({
-      ...r,
-      status: (!r.status || r.status === 'Draft') ? 'Available' : r.status,
-      durationMinutes: Number(r.duration_minutes) || 10,
-      totalQuestions: Number(r.total_questions) || 0,
-      passingScore: Number(r.passing_score) || 70,
-      totalMarks: Number(r.total_marks) || 100,
-      collegeIds: Array.isArray(r.college_ids) ? r.college_ids : [],
-    }));
+    const rows = result.rows.map(r => {
+      const setCount = clampSetCount(r.set_count);
+      return {
+        ...r,
+        status: (!r.status || r.status === 'Draft') ? 'Available' : r.status,
+        durationMinutes: Number(r.duration_minutes) || 10,
+        totalQuestions: Number(r.total_questions) || 0,
+        passingScore: Number(r.passing_score) || 70,
+        totalMarks: Number(r.total_marks) || 100,
+        setCount,
+        // Candidates must not see another paper before their set is assigned.
+        selected_question_ids: setCount > 1 ? [] : r.selected_question_ids,
+        collegeIds: Array.isArray(r.college_ids) ? r.college_ids : [],
+      };
+    });
     assessmentsCache = { success: true, data: rows };
     lastAssessmentsFetch = Date.now();
     return true;
@@ -91,7 +111,7 @@ export const getAllAssessments = async (req, res) => {
       SELECT 
         a.*,
         COALESCE(
-          (SELECT COUNT(*) FROM assessment_questions aq WHERE aq.assessment_id = a.id AND aq.assessment_id IS NOT NULL),
+          (SELECT COUNT(*) FROM assessment_questions aq WHERE aq.assessment_id = a.id AND aq.set_code = 'A'),
           a.total_questions,
           0
         )::int as total_questions,
@@ -100,7 +120,7 @@ export const getAllAssessments = async (req, res) => {
           '[]'::json
         ) as college_ids,
         COALESCE(
-          (SELECT json_agg(aq.question_id) FROM assessment_questions aq WHERE aq.assessment_id = a.id),
+          (SELECT json_agg(aq.question_id) FROM assessment_questions aq WHERE aq.assessment_id = a.id AND aq.set_code = 'A'),
           '[]'::json
         ) as selected_question_ids
       FROM assessments a
@@ -108,15 +128,21 @@ export const getAllAssessments = async (req, res) => {
       ${includeArchived ? '' : "AND a.status IS DISTINCT FROM 'Archived'"}
       ORDER BY a.created_at DESC
     `, queryParams);
-    const rows = result.rows.map(r => ({
-      ...r,
-      status: (!r.status || r.status === 'Draft') ? 'Available' : r.status,
-      durationMinutes: Number(r.duration_minutes) || 10,
-      totalQuestions: Number(r.total_questions) || 0,
-      passingScore: Number(r.passing_score) || 70,
-      totalMarks: Number(r.total_marks) || 100,
-      collegeIds: Array.isArray(r.college_ids) ? r.college_ids : [],
-    }));
+    const canSeeSetA = req.user?.role === 'admin' || req.user?.role === 'college_admin';
+    const rows = result.rows.map(r => {
+      const setCount = clampSetCount(r.set_count);
+      return {
+        ...r,
+        status: (!r.status || r.status === 'Draft') ? 'Available' : r.status,
+        durationMinutes: Number(r.duration_minutes) || 10,
+        totalQuestions: Number(r.total_questions) || 0,
+        passingScore: Number(r.passing_score) || 70,
+        totalMarks: Number(r.total_marks) || 100,
+        setCount,
+        selected_question_ids: (canSeeSetA || setCount <= 1) ? r.selected_question_ids : [],
+        collegeIds: Array.isArray(r.college_ids) ? r.college_ids : [],
+      };
+    });
     const responsePayload = { success: true, data: rows };
 
     if (!includeArchived) {
@@ -137,7 +163,7 @@ export const getAssessmentById = async (req, res) => {
       SELECT 
         a.*,
         COALESCE(
-          (SELECT COUNT(*) FROM assessment_questions aq WHERE aq.assessment_id = a.id AND aq.assessment_id IS NOT NULL),
+          (SELECT COUNT(*) FROM assessment_questions aq WHERE aq.assessment_id = a.id AND aq.set_code = 'A'),
           a.total_questions,
           0
         )::int as total_questions,
@@ -146,20 +172,25 @@ export const getAssessmentById = async (req, res) => {
           '[]'::json
         ) as college_ids,
         COALESCE(
-          (SELECT json_agg(aq.question_id) FROM assessment_questions aq WHERE aq.assessment_id = a.id),
+          (SELECT json_agg(aq.question_id) FROM assessment_questions aq WHERE aq.assessment_id = a.id AND aq.set_code = 'A'),
           '[]'::json
         ) as selected_question_ids
       FROM assessments a
       WHERE a.id = $1
     `, [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Assessment not found.' });
+    const row = result.rows[0];
+    const setCount = clampSetCount(row.set_count);
+    const canSeeSetA = req.user?.role === 'admin' || req.user?.role === 'college_admin';
     const formatted = {
-      ...result.rows[0],
-      durationMinutes: Number(result.rows[0].duration_minutes) || 10,
-      totalQuestions: Number(result.rows[0].total_questions) || 0,
-      passingScore: Number(result.rows[0].passing_score) || 70,
-      totalMarks: Number(result.rows[0].total_marks) || 100,
-      collegeIds: Array.isArray(result.rows[0].college_ids) ? result.rows[0].college_ids : [],
+      ...row,
+      durationMinutes: Number(row.duration_minutes) || 10,
+      totalQuestions: Number(row.total_questions) || 0,
+      passingScore: Number(row.passing_score) || 70,
+      totalMarks: Number(row.total_marks) || 100,
+      setCount,
+      selected_question_ids: (canSeeSetA || setCount <= 1) ? row.selected_question_ids : [],
+      collegeIds: Array.isArray(row.college_ids) ? row.college_ids : [],
     };
     res.json({ success: true, data: formatted });
   } catch (err) {
@@ -167,8 +198,161 @@ export const getAssessmentById = async (req, res) => {
   }
 };
 
+// Persist one question snapshot for a specific paper set.
+const insertAssessmentQuestionSnapshot = async (client, assessmentId, q, setCode) => {
+  const aqId = `aq-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+  await client.query(
+    `INSERT INTO assessment_questions (id, assessment_id, question_id, set_code, category, topic, question, difficulty, options, correct_answer, marks, test_cases, starter_templates, constraints)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     ON CONFLICT (assessment_id, set_code, question_id) DO UPDATE SET
+       category = EXCLUDED.category,
+       topic = EXCLUDED.topic,
+       question = EXCLUDED.question,
+       difficulty = EXCLUDED.difficulty,
+       options = EXCLUDED.options,
+       correct_answer = EXCLUDED.correct_answer,
+       marks = EXCLUDED.marks,
+       test_cases = EXCLUDED.test_cases,
+       starter_templates = EXCLUDED.starter_templates,
+       constraints = EXCLUDED.constraints`,
+    [
+      aqId,
+      assessmentId,
+      q.id,
+      setCode,
+      q.category,
+      q.topic,
+      q.question,
+      q.difficulty,
+      JSON.stringify(q.options || []),
+      q.correct_answer,
+      q.marks || 1,
+      q.test_cases ? JSON.stringify(q.test_cases) : null,
+      q.starter_templates ? JSON.stringify(q.starter_templates) : null,
+      q.constraints != null ? JSON.stringify(q.constraints) : null
+    ]
+  );
+};
+
+const distributionKey = (row) =>
+  `${String(row.category || '').trim().toLowerCase()}|${String(row.topic || '').trim().toLowerCase()}`;
+
+const sameSetDistribution = (rows, targetRows) => {
+  if (rows.length !== targetRows.length) return false;
+  const countByKey = (list) => list.reduce((map, row) => {
+    const key = distributionKey(row);
+    map.set(key, (map.get(key) || 0) + 1);
+    return map;
+  }, new Map());
+  const left = countByKey(rows);
+  const right = countByKey(targetRows);
+  if (left.size !== right.size) return false;
+  for (const [key, count] of left.entries()) {
+    if (right.get(key) !== count) return false;
+  }
+  return true;
+};
+
+// Build a paper set from the bank with the same category/topic mix as set A,
+// preferring questions that are not already used by another set.
+const generateAssessmentSet = async (client, assessmentId, setCode, targetRows, usedQuestionIds) => {
+  const categories = [...new Set(
+    targetRows.map(row => String(row.category || '').trim()).filter(Boolean)
+  )];
+  const pools = new Map();
+
+  for (const category of categories) {
+    const res = await client.query(
+      `SELECT id, category, topic, question, difficulty, options, correct_answer, marks,
+              test_cases, starter_templates, constraints
+       FROM questions
+       WHERE LOWER(category) = LOWER($1)
+         AND (status IS NULL OR status = 'Active')
+       ORDER BY created_at DESC`,
+      [category]
+    );
+    pools.set(category.toLowerCase(), res.rows);
+  }
+
+  const used = new Set(usedQuestionIds);
+  const picked = [];
+  const pickedIds = new Set();
+
+  for (const target of targetRows) {
+    const categoryKey = String(target.category || '').trim().toLowerCase();
+    const topicKey = String(target.topic || '').trim().toLowerCase();
+    const difficultyKey = String(target.difficulty || '').trim().toLowerCase();
+    const pool = pools.get(categoryKey) || [];
+    const candidates = pool.filter(q => !used.has(q.id) && !pickedIds.has(q.id));
+
+    const pick =
+      candidates.find(q => String(q.topic || '').trim().toLowerCase() === topicKey &&
+        String(q.difficulty || '').trim().toLowerCase() === difficultyKey) ||
+      candidates.find(q => String(q.topic || '').trim().toLowerCase() === topicKey) ||
+      candidates.find(q => String(q.difficulty || '').trim().toLowerCase() === difficultyKey) ||
+      candidates[0];
+
+    if (!pick) continue;
+    picked.push(pick);
+    pickedIds.add(pick.id);
+    used.add(pick.id);
+  }
+
+  for (const q of picked) {
+    await insertAssessmentQuestionSnapshot(client, assessmentId, q, setCode);
+  }
+  return picked.map(q => q.id);
+};
+
+// Keep B/C in sync with the current set A without disturbing an already-valid
+// set (so in-progress attempts never have their paper swapped mid-exam).
+export const ensureAssessmentSets = async (client, assessmentId, setCount = 1) => {
+  const requested = clampSetCount(setCount);
+  const allowedCodes = ASSESSMENT_SET_CODES.slice(0, requested);
+
+  await client.query(
+    `DELETE FROM assessment_questions
+     WHERE assessment_id = $1 AND NOT (set_code = ANY($2::varchar[]))`,
+    [assessmentId, allowedCodes]
+  );
+
+  const setARes = await client.query(
+    `SELECT question_id, category, topic, difficulty
+     FROM assessment_questions
+     WHERE assessment_id = $1 AND set_code = 'A'
+     ORDER BY created_at ASC, id ASC`,
+    [assessmentId]
+  );
+  if (setARes.rows.length === 0) return;
+
+  const used = new Set(setARes.rows.map(row => row.question_id));
+
+  for (let i = 1; i < requested; i++) {
+    const setCode = ASSESSMENT_SET_CODES[i];
+    const existingRes = await client.query(
+      `SELECT question_id, category, topic, difficulty
+       FROM assessment_questions
+       WHERE assessment_id = $1 AND set_code = $2
+       ORDER BY created_at ASC, id ASC`,
+      [assessmentId, setCode]
+    );
+
+    if (sameSetDistribution(existingRes.rows, setARes.rows)) {
+      existingRes.rows.forEach(row => used.add(row.question_id));
+      continue;
+    }
+
+    await client.query(
+      'DELETE FROM assessment_questions WHERE assessment_id = $1 AND set_code = $2',
+      [assessmentId, setCode]
+    );
+    const generatedIds = await generateAssessmentSet(client, assessmentId, setCode, setARes.rows, used);
+    generatedIds.forEach(id => used.add(id));
+  }
+};
+
 // Helper function to sync questions for an assessment in assessment_questions table
-export const syncAssessmentQuestions = async (client, assessmentId, selectedQuestionIds = [], fallbackCategory = 'Technical', targetCount = 10) => {
+export const syncAssessmentQuestions = async (client, assessmentId, selectedQuestionIds = [], fallbackCategory = 'Technical', targetCount = 10, setCount = 1) => {
   let idsToLink = Array.isArray(selectedQuestionIds) ? selectedQuestionIds.filter(Boolean) : [];
 
   // If no explicit question IDs provided, auto-select matching questions from questions table
@@ -190,9 +374,11 @@ export const syncAssessmentQuestions = async (client, assessmentId, selectedQues
   }
 
   if (idsToLink.length > 0) {
-    // 1. Remove any questions currently in assessment_questions that are not in the new idsToLink
+    // 1. Remove set-A questions that are no longer selected. Other sets are
+    // reconciled by ensureAssessmentSets below.
     await client.query(
-      'DELETE FROM assessment_questions WHERE assessment_id = $1 AND NOT (question_id = ANY($2::varchar[]))',
+      `DELETE FROM assessment_questions
+       WHERE assessment_id = $1 AND set_code = 'A' AND NOT (question_id = ANY($2::varchar[]))`,
       [assessmentId, idsToLink]
     );
 
@@ -245,40 +431,11 @@ export const syncAssessmentQuestions = async (client, assessmentId, selectedQues
       }
     }
 
-    // 3. Upsert questions into assessment_questions
+    // 3. Upsert set A, then generate/refresh sets B and C from the bank
     for (const q of qDetailsRes.rows) {
-      const aqId = `aq-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-      await client.query(
-        `INSERT INTO assessment_questions (id, assessment_id, question_id, category, topic, question, difficulty, options, correct_answer, marks, test_cases, starter_templates, constraints)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-         ON CONFLICT (assessment_id, question_id) DO UPDATE SET
-           category = EXCLUDED.category,
-           topic = EXCLUDED.topic,
-           question = EXCLUDED.question,
-           difficulty = EXCLUDED.difficulty,
-           options = EXCLUDED.options,
-           correct_answer = EXCLUDED.correct_answer,
-           marks = EXCLUDED.marks,
-           test_cases = EXCLUDED.test_cases,
-           starter_templates = EXCLUDED.starter_templates,
-           constraints = EXCLUDED.constraints`,
-        [
-          aqId,
-          assessmentId,
-          q.id,
-          q.category,
-          q.topic,
-          q.question,
-          q.difficulty,
-          JSON.stringify(q.options || []),
-          q.correct_answer,
-          q.marks || 1,
-          q.test_cases ? JSON.stringify(q.test_cases) : null,
-          q.starter_templates ? JSON.stringify(q.starter_templates) : null,
-          q.constraints != null ? JSON.stringify(q.constraints) : null
-        ]
-      );
+      await insertAssessmentQuestionSnapshot(client, assessmentId, q, 'A');
     }
+    await ensureAssessmentSets(client, assessmentId, setCount);
   } else {
     // If no questions, clear any existing assessment_questions for this assessment
     await client.query('DELETE FROM assessment_questions WHERE assessment_id = $1', [assessmentId]);
@@ -290,6 +447,7 @@ export const createAssessment = async (req, res) => {
   const { id: customId, title, category, description, difficulty, durationMinutes, totalQuestions, passingScore, selectedQuestionIds, collegeIds } = req.body;
   const id = customId || `asm-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
   const client = await pool.connect();
+  const setCount = clampSetCount(req.body.setCount ?? req.body.set_count ?? 1);
 
   const finalTotalQuestions = (Array.isArray(selectedQuestionIds) && selectedQuestionIds.length > 0)
     ? selectedQuestionIds.length
@@ -310,8 +468,8 @@ export const createAssessment = async (req, res) => {
     const totalMarksVal = Number(req.body.totalMarks) || 100;
     const statusVal = req.body.status || 'Available';
     const result = await client.query(
-      `INSERT INTO assessments (id, title, category, description, difficulty, duration_minutes, total_questions, total_marks, passing_score, status, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      `INSERT INTO assessments (id, title, category, description, difficulty, duration_minutes, total_questions, total_marks, passing_score, status, created_by, set_count)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (id) DO UPDATE SET
          title = EXCLUDED.title,
          category = EXCLUDED.category,
@@ -322,9 +480,10 @@ export const createAssessment = async (req, res) => {
          total_marks = EXCLUDED.total_marks,
          passing_score = EXCLUDED.passing_score,
          status = EXCLUDED.status,
+         set_count = EXCLUDED.set_count,
          updated_at = CURRENT_TIMESTAMP
        RETURNING *`,
-      [id, title, category || 'Technical', description || null, difficulty || 'Medium', Number(durationMinutes) || 30, finalTotalQuestions, totalMarksVal, Number(passingScore) || 65, statusVal, createdBy]
+      [id, title, category || 'Technical', description || null, difficulty || 'Medium', Number(durationMinutes) || 30, finalTotalQuestions, totalMarksVal, Number(passingScore) || 65, statusVal, createdBy, setCount]
     );
 
     // Link assessment to colleges
@@ -341,7 +500,7 @@ export const createAssessment = async (req, res) => {
     }
 
     // Sync questions into assessment_questions table
-    await syncAssessmentQuestions(client, id, selectedQuestionIds, category || 'Technical', finalTotalQuestions);
+    await syncAssessmentQuestions(client, id, selectedQuestionIds, category || 'Technical', finalTotalQuestions, setCount);
 
     await client.query('COMMIT');
     res.status(201).json({ success: true, data: result.rows[0] });
@@ -358,6 +517,8 @@ export const createAssessment = async (req, res) => {
 export const updateAssessment = async (req, res) => {
   const { title, category, description, difficulty, durationMinutes, totalQuestions, passingScore, status, selectedQuestionIds, collegeIds } = req.body;
   const client = await pool.connect();
+  const rawSetCount = req.body.setCount ?? req.body.set_count;
+  const setCountParam = rawSetCount != null ? clampSetCount(rawSetCount) : null;
 
   const finalTotalQuestions = (Array.isArray(selectedQuestionIds) && selectedQuestionIds.length > 0)
     ? selectedQuestionIds.length
@@ -377,8 +538,9 @@ export const updateAssessment = async (req, res) => {
          total_questions = COALESCE($6, total_questions), 
          passing_score = COALESCE($7, passing_score), 
          status = COALESCE($8, status), 
+         set_count = COALESCE($9, set_count),
          updated_at = CURRENT_TIMESTAMP 
-       WHERE id=$9 RETURNING *`,
+       WHERE id=$10 RETURNING *`,
       [
         title ?? null,
         category ?? null,
@@ -388,6 +550,7 @@ export const updateAssessment = async (req, res) => {
         finalTotalQuestions,
         passingScore != null ? Number(passingScore) : null,
         status ?? null,
+        setCountParam,
         req.params.id
       ]
     );
@@ -412,9 +575,20 @@ export const updateAssessment = async (req, res) => {
       }
     }
 
-    // If selectedQuestionIds are provided in the update, sync them
+    const effectiveSetCount = clampSetCount(setCountParam ?? updatedAsm.set_count);
+    // If selectedQuestionIds are provided in the update, sync them. Otherwise a
+    // set-count change alone still reconciles B/C from the existing set A.
     if (selectedQuestionIds !== undefined) {
-      await syncAssessmentQuestions(client, req.params.id, selectedQuestionIds, updatedAsm.category, Number(updatedAsm.total_questions) || 10);
+      await syncAssessmentQuestions(
+        client,
+        req.params.id,
+        selectedQuestionIds,
+        updatedAsm.category,
+        Number(updatedAsm.total_questions) || 10,
+        effectiveSetCount
+      );
+    } else if (setCountParam != null) {
+      await ensureAssessmentSets(client, req.params.id, effectiveSetCount);
     }
 
     await client.query('COMMIT');
@@ -520,6 +694,31 @@ export const getAssessmentQuestions = async (req, res) => {
       return res.json({ success: true, data: matchingQuestions, total: matchingQuestions.length });
     }
 
+    // Determine which paper set this requester should see.
+    // Admins see set A (all sets if ?set_code=B/C is passed). Candidates see
+    // only the set assigned to their in-progress attempt; if they haven't
+    // started yet, they see set A as a preview (single-set assessments show A).
+    let requesterSetCode = 'A';
+    if (req.query?.set_code) {
+      requesterSetCode = normalizeSetCode(req.query.set_code);
+    } else if (!isAdmin && (candidateId || candidateEmail) && pool && getDbStatus()) {
+      try {
+        const attemptRes = await pool.query(
+          `SELECT ta.set_code, a.set_count
+           FROM test_attempts ta
+           JOIN assessments a ON a.id = ta.assessment_id
+           WHERE ta.assessment_id = $1
+             AND (ta.candidate_id = $2 OR (ta.candidate_id IS NOT NULL AND ta.candidate_id = $2))
+             AND ta.status = 'InProgress'
+           ORDER BY ta.created_at DESC LIMIT 1`,
+          [req.params.id, candidateId]
+        );
+        if (attemptRes.rows.length > 0 && attemptRes.rows[0].set_code) {
+          requesterSetCode = attemptRes.rows[0].set_code;
+        }
+      } catch { /* fall back to set A */ }
+    }
+
     const result = await pool.query(
       `SELECT aq.id, aq.question_id, aq.section_id, aq.category, aq.topic, aq.question, aq.difficulty, aq.options,
               COALESCE(q.type, 'Single Choice') as type,
@@ -528,9 +727,9 @@ export const getAssessmentQuestions = async (req, res) => {
               aq.marks, aq.created_at
        FROM assessment_questions aq
        JOIN questions q ON q.id = aq.question_id
-       WHERE aq.assessment_id = $1
+       WHERE aq.assessment_id = $1 AND aq.set_code = $2
        ORDER BY aq.created_at ASC, aq.id ASC`,
-      [req.params.id]
+      [req.params.id, requesterSetCode]
     );
 
     let questionsList = result.rows;
@@ -598,9 +797,9 @@ export const addQuestionsToAssessment = async (req, res) => {
       for (const q of qRes.rows) {
         const aqId = `aq-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
         const insRes = await client.query(
-          `INSERT INTO assessment_questions (id, assessment_id, question_id, category, topic, question, difficulty, options, correct_answer, marks)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-           ON CONFLICT (assessment_id, question_id) DO UPDATE SET
+          `INSERT INTO assessment_questions (id, assessment_id, question_id, set_code, category, topic, question, difficulty, options, correct_answer, marks)
+           VALUES ($1, $2, $3, 'A', $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (assessment_id, set_code, question_id) DO UPDATE SET
              category = EXCLUDED.category,
              topic = EXCLUDED.topic,
              question = EXCLUDED.question,
@@ -622,9 +821,9 @@ export const addQuestionsToAssessment = async (req, res) => {
         const qId = q.question_id || q.id;
         const aqId = `aq-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
         const insRes = await client.query(
-          `INSERT INTO assessment_questions (id, assessment_id, question_id, category, topic, question, difficulty, options, correct_answer, marks)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-           ON CONFLICT (assessment_id, question_id) DO UPDATE SET
+          `INSERT INTO assessment_questions (id, assessment_id, question_id, set_code, category, topic, question, difficulty, options, correct_answer, marks)
+           VALUES ($1, $2, $3, 'A', $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (assessment_id, set_code, question_id) DO UPDATE SET
              category = EXCLUDED.category,
              topic = EXCLUDED.topic,
              question = EXCLUDED.question,

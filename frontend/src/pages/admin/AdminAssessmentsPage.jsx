@@ -136,6 +136,7 @@ export const AdminAssessmentsPage = () => {
     difficulty: 'Medium',
     durationMinutes: 60,
     passingScore: 60,
+    setCount: 1,
     selectedQuestionIds: [],
     totalQuestions: sumSectionCounts(DEFAULT_SECTION_COUNTS),
     sectionCounts: { ...DEFAULT_SECTION_COUNTS },
@@ -221,6 +222,7 @@ export const AdminAssessmentsPage = () => {
       difficulty: 'Medium',
       durationMinutes: 60,
       passingScore: 60,
+      setCount: 1,
       selectedQuestionIds: [],
       totalQuestions: sumSectionCounts(DEFAULT_SECTION_COUNTS),
       sectionCounts: { ...DEFAULT_SECTION_COUNTS },
@@ -400,6 +402,7 @@ export const AdminAssessmentsPage = () => {
       difficulty: asm.difficulty || 'Medium',
       durationMinutes: Number(asm.durationMinutes) || 30,
       passingScore: Number(asm.passingScore) || 65,
+      setCount: Number(asm.setCount || asm.set_count) || 1,
       selectedQuestionIds: sanitizedIds,
       totalQuestions: Number(asm.totalQuestions) || sanitizedIds.length || 15,
       sectionCounts: deriveSectionCounts(sanitizedIds, questionBank),
@@ -842,6 +845,40 @@ export const AdminAssessmentsPage = () => {
                     <option value="Medium">Medium (Industry Standard)</option>
                     <option value="Hard">Hard (Competitive / Senior)</option>
                   </select>
+                </div>
+
+                {/* QUESTION PAPER SETS */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block font-bold text-slate-700">Question Paper Sets</label>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                      newAssessment.setCount > 1
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-slate-100 text-slate-400 border-slate-200'
+                    }`}>
+                      {newAssessment.setCount} set{newAssessment.setCount > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {[1, 2, 3].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setNewAssessment({ ...newAssessment, setCount: n })}
+                        className={`w-10 h-10 rounded-xl border flex items-center justify-center font-bold text-sm transition-all ${
+                          newAssessment.setCount === n
+                            ? 'bg-brand-600 border-brand-600 text-white shadow-md'
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-1.5 block">
+                    Each candidate receives one set at random. Sets share the same
+                    category/topic mix but use different questions from the bank.
+                  </span>
                 </div>
 
                 <div>

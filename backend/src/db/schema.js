@@ -163,6 +163,7 @@ const schemaSQL = `
       id VARCHAR(64) PRIMARY KEY,
       assessment_id VARCHAR(64) NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
       question_id VARCHAR(64) NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+      set_code VARCHAR(4) NOT NULL DEFAULT 'A',
       category VARCHAR(64),
       topic VARCHAR(255),
       question TEXT,
@@ -171,7 +172,7 @@ const schemaSQL = `
       correct_answer VARCHAR(16),
       marks INT DEFAULT 1,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT uq_assessment_question UNIQUE (assessment_id, question_id)
+      CONSTRAINT uq_assessment_question_set UNIQUE (assessment_id, set_code, question_id)
     );
 
     -- 8b. assessment_sections: Sections inside an assessment (multi-section tests)
@@ -364,9 +365,13 @@ export const initSchema = async () => {
 
       ALTER TABLE assessments ADD COLUMN IF NOT EXISTS total_marks INT DEFAULT 100;
       ALTER TABLE assessments ADD COLUMN IF NOT EXISTS passing_score INT DEFAULT 65;
+      ALTER TABLE assessments ADD COLUMN IF NOT EXISTS set_count INT DEFAULT 1;
       ALTER TABLE assessments ADD COLUMN IF NOT EXISTS created_by VARCHAR(64);
       ALTER TABLE assessments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
       UPDATE assessments SET status = 'Available' WHERE status = 'Draft' OR status IS NULL;
+      UPDATE assessments SET set_count = 1 WHERE set_count IS NULL OR set_count < 1;
+
+      ALTER TABLE test_attempts ADD COLUMN IF NOT EXISTS set_code VARCHAR(4);
 
       ALTER TABLE questions ADD COLUMN IF NOT EXISTS topic_id VARCHAR(64);
       ALTER TABLE questions ADD COLUMN IF NOT EXISTS topic VARCHAR(255) DEFAULT 'General';
@@ -401,6 +406,11 @@ export const initSchema = async () => {
       ALTER TABLE assessment_questions ADD COLUMN IF NOT EXISTS options JSONB;
       ALTER TABLE assessment_questions ADD COLUMN IF NOT EXISTS correct_answer VARCHAR(16);
       ALTER TABLE assessment_questions ADD COLUMN IF NOT EXISTS marks INT DEFAULT 1;
+      ALTER TABLE assessment_questions ADD COLUMN IF NOT EXISTS set_code VARCHAR(4) DEFAULT 'A';
+      UPDATE assessment_questions SET set_code = 'A' WHERE set_code IS NULL;
+      ALTER TABLE assessment_questions DROP CONSTRAINT IF EXISTS uq_assessment_question;
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_question_set
+        ON assessment_questions(assessment_id, set_code, question_id);
 
       ALTER TABLE assessment_submissions ADD COLUMN IF NOT EXISTS proctoring_violations INT DEFAULT 0;
       ALTER TABLE assessment_submissions ADD COLUMN IF NOT EXISTS auto_submitted BOOLEAN DEFAULT FALSE;

@@ -60,6 +60,7 @@ export const evaluateSubmission = async ({
   questionIds = [],
   totalQuestions: expectedTotalQuestions,
   dbClient = pool,
+  setCode,
 }) => {
   const answerEntries = typeof answers === 'object' && answers !== null ? answers : {};
   const answeredQuestionIds = Object.keys(answerEntries);
@@ -92,11 +93,12 @@ export const evaluateSubmission = async ({
   if (allQuestionIds.length > 0 && dbClient) {
     try {
       if (assessmentId) {
+        const setFilter = setCode ? ` AND aq.set_code = $3` : '';
         const aqRes = await dbClient.query(
           `SELECT question_id as id, correct_answer, marks, category, topic, options
            FROM assessment_questions
-           WHERE assessment_id = $1 AND question_id = ANY($2::varchar[])`,
-          [assessmentId, allQuestionIds]
+           WHERE assessment_id = $1 AND question_id = ANY($2::varchar[])${setFilter}`,
+          setCode ? [assessmentId, allQuestionIds, setCode] : [assessmentId, allQuestionIds]
         );
         if (aqRes.rows.length > 0) {
           assessmentQuestions = aqRes.rows;
