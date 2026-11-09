@@ -206,7 +206,7 @@
       "topic": "Number Series",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "1,3,6,10,15,?",
+      "question": "What is the next number in the series: 1, 3, 6, 10, 15, ?",
       "options": [
         "21",
         "20",
@@ -214,7 +214,7 @@
         "23"
       ],
       "correctAnswer": "A",
-      "explanation": "Triangular.",
+      "explanation": "The differences between consecutive terms increase by 1: +2, +3, +4, +5, +6. Therefore, 15 + 6 = 21.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": [
@@ -227,7 +227,7 @@
       "topic": "Number Series",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "2,5,10,17,26,37,?",
+      "question": "What is the next number in the series: 2, 5, 10, 17, 26, 37, ?",
       "options": [
         "48",
         "49",
@@ -235,7 +235,7 @@
         "50"
       ],
       "correctAnswer": "D",
-      "explanation": "n^2+1.",
+      "explanation": "Each term follows the pattern n² + 1: 1²+1=2, 2²+1=5, 3²+1=10, 4²+1=17, 5²+1=26, 6²+1=37, so 7²+1=50.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": [
@@ -248,7 +248,7 @@
       "topic": "Number Series",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "1,4,9,16,?,36",
+      "question": "Which number should replace the question mark: 1, 4, 9, 16, ?, 36?",
       "options": [
         "20",
         "30",
@@ -256,7 +256,7 @@
         "32"
       ],
       "correctAnswer": "C",
-      "explanation": "Squares.",
+      "explanation": "The series consists of consecutive perfect squares: 1², 2², 3², 4², 5², 6². Therefore, the missing term is 5² = 25.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": [
@@ -269,7 +269,7 @@
       "topic": "Number Series",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "1,1,2,3,5,8,13,?",
+      "question": "What is the next number in the Fibonacci series: 1, 1, 2, 3, 5, 8, 13, ?",
       "options": [
         "18",
         "21",
@@ -277,7 +277,7 @@
         "22"
       ],
       "correctAnswer": "B",
-      "explanation": "Fibo.",
+      "explanation": "Each term is the sum of the two preceding terms: 8 + 13 = 21.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": [
@@ -290,7 +290,7 @@
       "topic": "Letter & Symbol Series",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "A,C,E,G,?",
+      "question": "Which letter comes next in the series: A, C, E, G, ?",
       "options": [
         "I",
         "H",
@@ -298,7 +298,7 @@
         "K"
       ],
       "correctAnswer": "A",
-      "explanation": "+2.",
+      "explanation": "Each letter moves two places forward in the alphabet: A→C→E→G→I.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -309,7 +309,7 @@
       "topic": "Letter & Symbol Series",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Z,X,V,T,R,?",
+      "question": "Which letter comes next in the series: Z, X, V, T, R, ?",
       "options": [
         "Q",
         "S",
@@ -317,7 +317,7 @@
         "P"
       ],
       "correctAnswer": "D",
-      "explanation": "-2.",
+      "explanation": "Each letter moves two places backward in the alphabet: Z→X→V→T→R→P.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -328,7 +328,7 @@
       "topic": "Letter & Symbol Series",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "B,D,G,K,P,?",
+      "question": "Which letter comes next in the series: B, D, G, K, P, ?",
       "options": [
         "T",
         "U",
@@ -336,7 +336,7 @@
         "W"
       ],
       "correctAnswer": "C",
-      "explanation": "Gaps increasing.",
+      "explanation": "The gaps between letters increase by one each time: +2, +3, +4, +5, +6. Thus P + 6 = V.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -347,7 +347,7 @@
       "topic": "Letter & Symbol Series",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "A,Z,B,Y,C,X,?",
+      "question": "Which letter comes next in the series: A, Z, B, Y, C, X, ?",
       "options": [
         "W",
         "D",
@@ -355,7 +355,7 @@
         "V"
       ],
       "correctAnswer": "B",
-      "explanation": "Pairs.",
+      "explanation": "The series alternates between two sequences: A, B, C, D, ... moving forward and Z, Y, X, ... moving backward. The next term is D.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -366,7 +366,7 @@
       "topic": "Letter & Symbol Series",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "C,F,I,L,O,?",
+      "question": "Which letter comes next in the series: C, F, I, L, O, ?",
       "options": [
         "R",
         "Q",
@@ -374,7 +374,7 @@
         "P"
       ],
       "correctAnswer": "A",
-      "explanation": "+3.",
+      "explanation": "Each letter moves three places forward in the alphabet: C→F→I→L→O→R.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -385,7 +385,7 @@
       "topic": "Letter & Symbol Series",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "AZ,BY,CX,DW,?",
+      "question": "Which pair comes next in the series: AZ, BY, CX, DW, ?",
       "options": [
         "EV",
         "EU",
@@ -393,7 +393,7 @@
         "FW"
       ],
       "correctAnswer": "A",
-      "explanation": "Sequence.",
+      "explanation": "The first letter moves forward (A, B, C, D, E) while the second letter moves backward (Z, Y, X, W, V). Therefore, the next pair is EV.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -404,7 +404,7 @@
       "topic": "Letter & Symbol Series",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "J,L,N,P,?",
+      "question": "Which letter comes next in the series: J, L, N, P, ?",
       "options": [
         "Q",
         "S",
@@ -412,7 +412,7 @@
         "R"
       ],
       "correctAnswer": "D",
-      "explanation": "+2.",
+      "explanation": "Each letter moves two places forward in the alphabet: J→L→N→P→R.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -423,7 +423,7 @@
       "topic": "Analogy",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Book:Pages::Pen:?",
+      "question": "Complete the analogy: Book : Pages :: Pen : ?",
       "options": [
         "Paper",
         "Cap",
@@ -431,7 +431,7 @@
         "Nib"
       ],
       "correctAnswer": "C",
-      "explanation": "Contains.",
+      "explanation": "A book is made up of pages, just as a pen contains ink.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -442,7 +442,7 @@
       "topic": "Analogy",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Cat:Kitten::Dog:?",
+      "question": "Complete the analogy: Cat : Kitten :: Dog : ?",
       "options": [
         "Cub",
         "Pup",
@@ -450,7 +450,7 @@
         "Foal"
       ],
       "correctAnswer": "B",
-      "explanation": "Young.",
+      "explanation": "A kitten is the young one of a cat, just as a pup is the young one of a dog.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -461,7 +461,7 @@
       "topic": "Analogy",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Doctor:Hospital::Teacher:?",
+      "question": "Complete the analogy: Doctor : Hospital :: Teacher : ?",
       "options": [
         "School",
         "Office",
@@ -469,7 +469,7 @@
         "College"
       ],
       "correctAnswer": "A",
-      "explanation": "Workplace.",
+      "explanation": "A doctor works in a hospital, just as a teacher works in a school.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -480,7 +480,7 @@
       "topic": "Analogy",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Eye:Sight::Ear:?",
+      "question": "Complete the analogy: Eye : Sight :: Ear : ?",
       "options": [
         "Hear",
         "Listening",
@@ -488,7 +488,7 @@
         "Sound"
       ],
       "correctAnswer": "D",
-      "explanation": "Sense.",
+      "explanation": "The eye is the sense organ for sight, just as the ear is the sense organ for sound.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -499,7 +499,7 @@
       "topic": "Analogy",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Man:Biography::Nation:?",
+      "question": "Complete the analogy: Man : Biography :: Nation : ?",
       "options": [
         "Geography",
         "Leader",
@@ -507,7 +507,7 @@
         "Flag"
       ],
       "correctAnswer": "C",
-      "explanation": "Record.",
+      "explanation": "A biography records the life of a man, just as history records the life of a nation.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -518,7 +518,7 @@
       "topic": "Analogy",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "Clock:Time::Thermometer:?",
+      "question": "Complete the analogy: Clock : Time :: Thermometer : ?",
       "options": [
         "Heat",
         "Temperature",
@@ -526,7 +526,7 @@
         "Degree"
       ],
       "correctAnswer": "B",
-      "explanation": "Measures.",
+      "explanation": "A clock measures time, just as a thermometer measures temperature.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -537,7 +537,7 @@
       "topic": "Analogy",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "Wheat:Flour::Sugarcane:?",
+      "question": "Complete the analogy: Wheat : Flour :: Sugarcane : ?",
       "options": [
         "Sugar",
         "Juice",
@@ -545,7 +545,7 @@
         "Molasses"
       ],
       "correctAnswer": "A",
-      "explanation": "Product.",
+      "explanation": "Flour is obtained from wheat, just as sugar is obtained from sugarcane.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -556,7 +556,7 @@
       "topic": "Classification (Odd One Out)",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Apple,Orange,Banana,Carrot odd?",
+      "question": "Which of the following is the odd one out: Apple, Orange, Banana, Carrot?",
       "options": [
         "Apple",
         "Orange",
@@ -564,7 +564,7 @@
         "Carrot"
       ],
       "correctAnswer": "D",
-      "explanation": "Veg.",
+      "explanation": "Apple, orange and banana are fruits, whereas carrot is a vegetable.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -575,7 +575,7 @@
       "topic": "Classification (Odd One Out)",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Pen,Pencil,Eraser,Notebook odd?",
+      "question": "Which of the following is the odd one out: Pen, Pencil, Eraser, Notebook?",
       "options": [
         "Pen",
         "Pencil",
@@ -583,7 +583,7 @@
         "Notebook"
       ],
       "correctAnswer": "D",
-      "explanation": "Item type.",
+      "explanation": "A pen, pencil and eraser are individual writing or correction tools, whereas a notebook is a bound collection of pages.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -594,7 +594,7 @@
       "topic": "Classification (Odd One Out)",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Cow,Dog,Cat,Tiger odd?",
+      "question": "Which of the following is the odd one out: Cow, Dog, Cat, Tiger?",
       "options": [
         "Dog",
         "Cat",
@@ -602,7 +602,7 @@
         "Tiger"
       ],
       "correctAnswer": "C",
-      "explanation": "Herbivore.",
+      "explanation": "The cow is a herbivore, whereas the dog, cat and tiger are carnivores.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -613,7 +613,7 @@
       "topic": "Classification (Odd One Out)",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Mon,Tue,Wed,Sun odd?",
+      "question": "Which of the following is the odd one out: Monday, Tuesday, Wednesday, Sunday?",
       "options": [
         "Mon",
         "Sun",
@@ -621,7 +621,7 @@
         "Wed"
       ],
       "correctAnswer": "B",
-      "explanation": "Weekend.",
+      "explanation": "Sunday is a weekend day, whereas Monday, Tuesday and Wednesday are weekdays.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -632,7 +632,7 @@
       "topic": "Classification (Odd One Out)",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "2,4,6,9 odd?",
+      "question": "Which of the following is the odd one out: 2, 4, 6, 9?",
       "options": [
         "9",
         "2",
@@ -640,7 +640,7 @@
         "6"
       ],
       "correctAnswer": "A",
-      "explanation": "Odd no.",
+      "explanation": "9 is an odd number, whereas 2, 4 and 6 are even numbers.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -651,15 +651,15 @@
       "topic": "Classification (Odd One Out)",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "Circle,Square,Triangle,Rect odd?",
+      "question": "Which of the following is the odd one out: Circle, Square, Triangle, Rectangle?",
       "options": [
         "Square",
         "Circle",
         "Triangle",
-        "Rect"
+        "Rectangle"
       ],
       "correctAnswer": "B",
-      "explanation": "No sides.",
+      "explanation": "A circle has no straight sides, whereas a square, triangle and rectangle are polygons with straight sides.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -670,7 +670,7 @@
       "topic": "Classification (Odd One Out)",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "Cu,Fe,Au,Plastic odd?",
+      "question": "Which of the following is the odd one out: Copper (Cu), Iron (Fe), Gold (Au), Plastic?",
       "options": [
         "Cu",
         "Fe",
@@ -678,7 +678,7 @@
         "Au"
       ],
       "correctAnswer": "C",
-      "explanation": "Non-metal.",
+      "explanation": "Copper, iron and gold are metals, whereas plastic is a non-metal.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -689,7 +689,7 @@
       "topic": "Coding & Decoding",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "CAT->DBU, DOG->?",
+      "question": "If CAT is coded as DBU, how is DOG coded in the same code?",
       "options": [
         "DPH",
         "EOF",
@@ -697,7 +697,7 @@
         "EPH"
       ],
       "correctAnswer": "D",
-      "explanation": "+1.",
+      "explanation": "Each letter is shifted one place forward: C→D, A→B, T→U. Applying the same rule, D→E, O→P, G→H, so DOG becomes EPH.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -708,7 +708,7 @@
       "topic": "Coding & Decoding",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "APPLE->BQQMF, ORANGE->?",
+      "question": "If APPLE is coded as BQQMF, how is ORANGE coded in the same code?",
       "options": [
         "PSBOHF",
         "PSBOIF",
@@ -716,7 +716,7 @@
         "PRBOHF"
       ],
       "correctAnswer": "A",
-      "explanation": "+1.",
+      "explanation": "Each letter is shifted one place forward: O→P, R→S, A→B, N→O, G→H, E→F, so ORANGE becomes PSBOHF.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -727,7 +727,7 @@
       "topic": "Coding & Decoding",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "ROAD->URDG, SWAN->?",
+      "question": "If ROAD is coded as URDG, how is SWAN coded in the same code?",
       "options": [
         "UXDQ",
         "VYDQ",
@@ -735,7 +735,7 @@
         "VZDQ"
       ],
       "correctAnswer": "D",
-      "explanation": "+3.",
+      "explanation": "Each letter is shifted three places forward: S→V, W→Z, A→D, N→Q, so SWAN becomes VZDQ.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -746,7 +746,7 @@
       "topic": "Coding & Decoding",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "FISH->GJTI, BIRD->?",
+      "question": "If FISH is coded as GJTI, how is BIRD coded in the same code?",
       "options": [
         "CKSE",
         "CJTF",
@@ -754,7 +754,7 @@
         "DKSE"
       ],
       "correctAnswer": "C",
-      "explanation": "+1.",
+      "explanation": "Each letter is shifted one place forward: B→C, I→J, R→S, D→E, so BIRD becomes CJSE.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -765,15 +765,15 @@
       "topic": "Coding & Decoding",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "CLOCK->DMPDL, WATCH->?",
+      "question": "If CLOCK is coded as DMPDL, how is WATCH coded in the same code?",
       "options": [
         "XBUDI",
         "WBUCI",
         "XBXDI",
         "XBVCH"
       ],
-      "correctAnswer": "C",
-      "explanation": "+1.",
+      "correctAnswer": "A",
+      "explanation": "Each letter is shifted one place forward: W→X, A→B, T→U, C→D, H→I, so WATCH becomes XBUDI.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -784,7 +784,7 @@
       "topic": "Coding & Decoding",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "TEA->UFB, CUP->?",
+      "question": "If TEA is coded as UFB, how is CUP coded in the same code?",
       "options": [
         "DVP",
         "DVQ",
@@ -792,7 +792,7 @@
         "DUQ"
       ],
       "correctAnswer": "B",
-      "explanation": "+1.",
+      "explanation": "Each letter is shifted one place forward: C→D, U→V, P→Q, so CUP becomes DVQ.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -803,7 +803,7 @@
       "topic": "Coding & Decoding",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "WATER->YCVGT, MILK->?",
+      "question": "If WATER is coded as YCVGT, how is MILK coded in the same code?",
       "options": [
         "OKNM",
         "PKNN",
@@ -811,7 +811,7 @@
         "OKML"
       ],
       "correctAnswer": "A",
-      "explanation": "+2.",
+      "explanation": "Each letter is shifted two places forward: M→O, I→K, L→N, K→M, so MILK becomes OKNM.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -822,7 +822,7 @@
       "topic": "Coding & Decoding",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "TABLE->UCDNG, CHAIR->?",
+      "question": "If TABLE is coded as VCDNG, how is CHAIR coded in the same code?",
       "options": [
         "EJDKT",
         "FJCKT",
@@ -830,7 +830,7 @@
         "EJCKT"
       ],
       "correctAnswer": "D",
-      "explanation": "+2.",
+      "explanation": "Each letter is shifted two places forward: C→E, H→J, A→C, I→K, R→T, so CHAIR becomes EJCKT.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -841,7 +841,7 @@
       "topic": "Blood Relations",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Rita says \"He is son of my father\". Relation?",
+      "question": "Rita says, \"He is the son of my father.\" How is the man related to Rita?",
       "options": [
         "Uncle",
         "Cousin",
@@ -849,7 +849,7 @@
         "Father"
       ],
       "correctAnswer": "C",
-      "explanation": "Brother.",
+      "explanation": "The son of Rita's father is either Rita's brother or Rita herself. Since the person is a man, he is Rita's brother.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -860,7 +860,7 @@
       "topic": "Blood Relations",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "A is B's sister,C B's mother,D C's father. A-D?",
+      "question": "A is B's sister, C is B's mother, and D is C's father. How is A related to D?",
       "options": [
         "Daughter",
         "Niece",
@@ -868,7 +868,7 @@
         "Granddaughter"
       ],
       "correctAnswer": "D",
-      "explanation": "Granddaughter.",
+      "explanation": "C is B's mother, so D, C's father, is B's grandfather. Since A is B's sister, A is also D's granddaughter.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -879,7 +879,7 @@
       "topic": "Blood Relations",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Photo: man's son is my son's uncle. Relation?",
+      "question": "A man says, \"The son of the man in this photograph is the uncle of my son.\" How is the man in the photograph related to the speaker?",
       "options": [
         "Father",
         "Brother",
@@ -887,7 +887,7 @@
         "Uncle"
       ],
       "correctAnswer": "A",
-      "explanation": "Father.",
+      "explanation": "The speaker's son's uncle is the speaker's brother. Therefore, the son of the man in the photograph is the speaker's brother, which makes the man in the photograph the speaker's father.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -898,7 +898,7 @@
       "topic": "Blood Relations",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "X brother Y, Y sister Z. Z to X?",
+      "question": "X is the brother of Y, and Y is the sister of Z. How is Z related to X?",
       "options": [
         "Cousin",
         "Nephew",
@@ -906,7 +906,7 @@
         "Sibling"
       ],
       "correctAnswer": "D",
-      "explanation": "Sibling.",
+      "explanation": "X and Y are siblings, and Y and Z are siblings, so X and Z are also siblings. Therefore, Z is X's sibling.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -917,15 +917,15 @@
       "topic": "Blood Relations",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "A's mother only daughter of B's father. B to A?",
+      "question": "A's mother is the only daughter of B's father. How is B related to A?",
       "options": [
         "Uncle",
         "Grandfather",
         "Father",
         "Brother"
       ],
-      "correctAnswer": "C",
-      "explanation": "Father.",
+      "correctAnswer": "A",
+      "explanation": "B's father's only daughter is B's sister, who is A's mother. Therefore, B is the brother of A's mother, making B A's maternal uncle.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -936,7 +936,7 @@
       "topic": "Blood Relations",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "P Q's bro, R Q's mom, S R's dad. P to S?",
+      "question": "P is Q's brother, R is Q's mother, and S is R's father. How is P related to S?",
       "options": [
         "Great-grandson",
         "Grandson",
@@ -944,7 +944,7 @@
         "Nephew"
       ],
       "correctAnswer": "B",
-      "explanation": "Grandson.",
+      "explanation": "R is Q's mother, so S, R's father, is Q's grandfather. Since P is Q's brother, P is also S's grandson.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -955,7 +955,7 @@
       "topic": "Blood Relations",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "Boy is son of only daughter of my mother. Relation?",
+      "question": "A woman says, \"The boy is the son of the only daughter of my mother.\" How is the boy related to the woman?",
       "options": [
         "Brother",
         "Son",
@@ -963,7 +963,7 @@
         "Cousin"
       ],
       "correctAnswer": "B",
-      "explanation": "Son.",
+      "explanation": "The only daughter of the woman's mother is the woman herself. Therefore, the boy is the woman's son.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -974,15 +974,15 @@
       "topic": "Direction Sense",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "5km N, right, 3km. From start?",
+      "question": "A person walks 5 km North, turns right and walks 3 km. How far east of the starting point is the person?",
       "options": [
-        "3km E",
-        "5km N",
-        "3km W",
-        "4km NE"
+        "3 km East",
+        "5 km North",
+        "3 km West",
+        "4 km North-East"
       ],
       "correctAnswer": "A",
-      "explanation": "3km E.",
+      "explanation": "Turning right from North makes the person face East, so the person moves 3 km east (and 5 km north) of the starting point.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -993,15 +993,15 @@
       "topic": "Direction Sense",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "4N,3E,4S,3W. Distance?",
+      "question": "A person walks 4 km North, 3 km East, 4 km South, and then 3 km West. How far is the person from the starting point?",
       "options": [
-        "2",
-        "4",
-        "6",
-        "0"
+        "2 km",
+        "4 km",
+        "6 km",
+        "0 km"
       ],
       "correctAnswer": "D",
-      "explanation": "0.",
+      "explanation": "The northward and southward movements cancel out, as do the eastward and westward movements. The person returns to the starting point, so the distance is 0 km.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1012,15 +1012,15 @@
       "topic": "Direction Sense",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Facing E,left 90,right 180,left 90. Facing?",
+      "question": "A person is facing East. He turns 90° left, then 180° right, and then 90° left. Which direction is he facing now?",
       "options": [
-        "N",
-        "S",
-        "E",
-        "W"
+        "North",
+        "South",
+        "East",
+        "West"
       ],
       "correctAnswer": "C",
-      "explanation": "E.",
+      "explanation": "East → 90° left = North; North → 180° right = South; South → 90° left = East. He is facing East.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1031,15 +1031,15 @@
       "topic": "Direction Sense",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "6N,left 8,left 6,left 8. Crossed start?",
+      "question": "A person walks 6 km North, turns left and walks 8 km, turns left and walks 6 km, and turns left and walks 8 km. Where does the person end up?",
       "options": [
-        "0",
-        "1",
-        "2",
-        "Never"
+        "At the starting point",
+        "1 km from the starting point",
+        "2 km from the starting point",
+        "Never returns to the starting point"
       ],
-      "correctAnswer": "D",
-      "explanation": "No.",
+      "correctAnswer": "A",
+      "explanation": "The path forms a closed rectangle: 6 km North, 8 km West, 6 km South, and 8 km East. The person returns to the starting point.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1050,7 +1050,7 @@
       "topic": "Order & Ranking",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "5th left,7th right. Total?",
+      "question": "In a row of people, a person is 5th from the left end and 7th from the right end. How many people are there in the row?",
       "options": [
         "11",
         "12",
@@ -1058,7 +1058,7 @@
         "13"
       ],
       "correctAnswer": "A",
-      "explanation": "11.",
+      "explanation": "Total = position from left + position from right − 1 = 5 + 7 − 1 = 11.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1069,7 +1069,7 @@
       "topic": "Order & Ranking",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "3rd of 40 from top. Bottom?",
+      "question": "In a class of 40 students, a student is ranked 3rd from the top. What is the student's rank from the bottom?",
       "options": [
         "37th",
         "39th",
@@ -1077,7 +1077,7 @@
         "38th"
       ],
       "correctAnswer": "D",
-      "explanation": "38.",
+      "explanation": "Rank from the bottom = total students − rank from the top + 1 = 40 − 3 + 1 = 38th.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1088,7 +1088,7 @@
       "topic": "Order & Ranking",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "A>B,C>A. Tallest?",
+      "question": "If A is taller than B and C is taller than A, who is the tallest?",
       "options": [
         "A",
         "B",
@@ -1096,7 +1096,7 @@
         "Equal"
       ],
       "correctAnswer": "C",
-      "explanation": "C.",
+      "explanation": "C is taller than A, and A is taller than B, so C is the tallest.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1107,7 +1107,7 @@
       "topic": "Order & Ranking",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Tom 2nd of 10 from start. End?",
+      "question": "Tom is 2nd from the start in a race of 10 runners. What is his position from the end?",
       "options": [
         "8th",
         "7th",
@@ -1115,7 +1115,7 @@
         "9th"
       ],
       "correctAnswer": "D",
-      "explanation": "9.",
+      "explanation": "Position from the end = total runners − position from the start + 1 = 10 − 2 + 1 = 9th.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1126,7 +1126,7 @@
       "topic": "Order & Ranking",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "A>B>C>D>E. 3rd costliest?",
+      "question": "If A is costlier than B, B is costlier than C, C is costlier than D, and D is costlier than E, which item is the third costliest?",
       "options": [
         "C",
         "B",
@@ -1134,7 +1134,7 @@
         "E"
       ],
       "correctAnswer": "A",
-      "explanation": "C.",
+      "explanation": "The order from costliest to cheapest is A, B, C, D, E, so C is the third costliest.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1145,7 +1145,7 @@
       "topic": "Order & Ranking",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "P>Q,R<S,Q=R. Tallest?",
+      "question": "If P is taller than Q, Q is equal in height to R, and R is taller than S, who is the tallest?",
       "options": [
         "P",
         "Q",
@@ -1153,7 +1153,7 @@
         "S"
       ],
       "correctAnswer": "A",
-      "explanation": "P.",
+      "explanation": "P is taller than Q, and Q is equal to R, so P is taller than both Q and R. R is taller than S, so P is the tallest.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1164,7 +1164,7 @@
       "topic": "Seating Arrangement",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "A,B,C,D row facing N. A left of B. Right end?",
+      "question": "Four friends A, B, C and D are sitting in a row facing North. A is to the left of B, B is to the left of C, and C is to the left of D. Who is sitting at the right end?",
       "options": [
         "A",
         "B",
@@ -1172,7 +1172,7 @@
         "D"
       ],
       "correctAnswer": "D",
-      "explanation": "D at end.",
+      "explanation": "The order from left to right is A, B, C, D, so D is at the right end.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1183,15 +1183,15 @@
       "topic": "Seating Arrangement",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "4 in circle. Right of A?",
+      "question": "Four people A, B, C and D are sitting around a circular table. Without knowing which direction they are facing, who sits to the immediate right of A?",
       "options": [
         "B",
         "C",
-        "Depends",
+        "Cannot be determined",
         "D"
       ],
       "correctAnswer": "C",
-      "explanation": "Direction matters.",
+      "explanation": "The immediate right of a person depends on whether the group is facing the centre or facing outward, so it cannot be determined from the given information.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1202,7 +1202,7 @@
       "topic": "Seating Arrangement",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "P,Q,R,S,T row. Q between P,R. S at right end. Left of S?",
+      "question": "Five people P, Q, R, S and T are sitting in a row. Q is between P and R, T is at the left end, and S is at the right end. Who is sitting immediately to the left of S?",
       "options": [
         "T",
         "R",
@@ -1210,7 +1210,7 @@
         "Q"
       ],
       "correctAnswer": "B",
-      "explanation": "R or T; order gives T? P,Q,R,T,S so left of S is T.",
+      "explanation": "The arrangement is T, P, Q, R, S. Therefore, R is sitting immediately to the left of S.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1221,15 +1221,15 @@
       "topic": "Seating Arrangement",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "6 circle facing center. A between B,C. Opposite A?",
+      "question": "Six people A, B, C, D, E and F are sitting around a circular table facing the centre. A is sitting between B and C. Which of the following could be sitting opposite A?",
       "options": [
-        "D/E/F",
+        "D",
         "B",
         "C",
-        "None"
+        "None of these"
       ],
       "correctAnswer": "A",
-      "explanation": "Person opposite.",
+      "explanation": "A is adjacent to both B and C, so neither B nor C can be opposite A. The person opposite A must be one of D, E or F, so D is a possible answer.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1240,7 +1240,7 @@
       "topic": "Seating Arrangement",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "A,B,C,D,E row. C right of B. D at extreme right. Middle?",
+      "question": "Five people A, B, C, D and E are sitting in a row. A is to the left of B, B is to the left of C, C is to the left of E, and D is at the extreme right end. Who is sitting in the middle?",
       "options": [
         "B",
         "A",
@@ -1248,7 +1248,7 @@
         "C"
       ],
       "correctAnswer": "D",
-      "explanation": "C.",
+      "explanation": "The order from left to right is A, B, C, E, D. Therefore, C is sitting in the middle.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1259,15 +1259,15 @@
       "topic": "Seating Arrangement",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "8 around table facing center. A 3rd left of B. Opposite B?",
+      "question": "Eight people A, B, C, D, E, F, G and H are sitting around a circular table facing the centre in the order A, B, C, D, E, F, G, H. Who is sitting opposite B?",
       "options": [
         "D",
         "F",
         "E",
         "G"
       ],
-      "correctAnswer": "C",
-      "explanation": "E.",
+      "correctAnswer": "B",
+      "explanation": "In an eight-person circular arrangement, the person opposite is four seats away. Starting from B and moving four seats gives F.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1278,15 +1278,15 @@
       "topic": "Seating Arrangement",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "P..U in two rows. P opposite R. Opposite Q?",
+      "question": "Six people P, Q, R, S, T and U are sitting in two parallel rows of three, facing each other. P, Q and U sit in one row, while R, S and T sit in the other row. P is opposite R. Who is opposite Q?",
       "options": [
         "T",
         "S",
         "U",
-        "Cannot"
+        "Cannot be determined"
       ],
       "correctAnswer": "B",
-      "explanation": "S.",
+      "explanation": "With P opposite R, the remaining positions pair Q with S and U with T. Therefore, S is opposite Q.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1297,15 +1297,15 @@
       "topic": "Syllogism",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "All cats animals. Tom cat. Concl?",
+      "question": "All cats are animals. Tom is a cat. Which conclusion follows?",
       "options": [
-        "Tom animal",
-        "Tom not",
-        "Maybe",
-        "None"
+        "Tom is an animal",
+        "Tom is not an animal",
+        "Tom may or may not be an animal",
+        "None of these"
       ],
       "correctAnswer": "A",
-      "explanation": "Valid.",
+      "explanation": "Since all cats are animals and Tom is a cat, Tom must be an animal.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1316,15 +1316,15 @@
       "topic": "Syllogism",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "No birds fish. Some fish goldfish. Concl?",
+      "question": "No birds are fish. Some fish are goldfish. Which conclusion follows?",
       "options": [
-        "All goldfish birds",
-        "No relation",
-        "All birds fish",
-        "Some goldfish not birds"
+        "All goldfish are birds",
+        "There is no relation between birds and goldfish",
+        "All birds are fish",
+        "Some goldfish are not birds"
       ],
       "correctAnswer": "D",
-      "explanation": "Follows.",
+      "explanation": "The goldfish that are fish cannot be birds, because no bird is a fish. Therefore, some goldfish are not birds.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1335,15 +1335,15 @@
       "topic": "Syllogism",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "All A B, All B C. Concl?",
+      "question": "All A are B and all B are C. Which conclusion follows?",
       "options": [
-        "Some A not C",
-        "All A C",
-        "No A C",
-        "Some C not A"
+        "Some A are not C",
+        "All A are C",
+        "No A is C",
+        "Some C are not A"
       ],
       "correctAnswer": "B",
-      "explanation": "Transitive.",
+      "explanation": "If every A is a B and every B is a C, then every A must also be a C.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1354,15 +1354,15 @@
       "topic": "Syllogism",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Some A B, All B C. Concl?",
+      "question": "Some A are B and all B are C. Which conclusion follows?",
       "options": [
-        "All A C",
-        "No A C",
-        "Some A C",
-        "None"
+        "All A are C",
+        "No A is C",
+        "Some A are C",
+        "None of these"
       ],
       "correctAnswer": "C",
-      "explanation": "Valid.",
+      "explanation": "The A's that are B are also C, because all B are C. Therefore, some A are C.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1373,15 +1373,15 @@
       "topic": "Syllogism",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "No A B, All B C. Concl?",
+      "question": "No A is B and all B are C. Which conclusion follows?",
       "options": [
-        "All C A",
-        "No C A",
-        "Some A C",
-        "Some C not A"
+        "All C are A",
+        "No C is A",
+        "Some A are C",
+        "Some C are not A"
       ],
       "correctAnswer": "D",
-      "explanation": "Follows.",
+      "explanation": "Since all B are C and no A is B, the B's that are C cannot be A. Therefore, some C are not A.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1392,15 +1392,15 @@
       "topic": "Syllogism",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "Some pens books, some books tables. Concl?",
+      "question": "Some pens are books and some books are tables. Which conclusion follows?",
       "options": [
-        "No definite",
-        "All pens tables",
-        "No pens tables",
-        "Some pens tables"
+        "No definite conclusion follows",
+        "All pens are tables",
+        "No pen is a table",
+        "Some pens are tables"
       ],
       "correctAnswer": "A",
-      "explanation": "None.",
+      "explanation": "The two 'some' statements do not establish a definite relationship between pens and tables.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1411,15 +1411,15 @@
       "topic": "Syllogism",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "All dogs bark, some animals bark. Concl?",
+      "question": "All dogs bark and some animals bark. Which conclusion follows?",
       "options": [
-        "All dogs animals",
-        "No definite",
-        "Some bark dogs",
-        "None"
+        "All dogs are animals",
+        "No definite conclusion follows",
+        "Some barking animals are dogs",
+        "None of these"
       ],
       "correctAnswer": "B",
-      "explanation": "None.",
+      "explanation": "The premises do not establish whether dogs are animals or whether any barking animal is a dog, so no definite conclusion follows.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1430,15 +1430,15 @@
       "topic": "Statement, Assumption & Conclusion",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Use XYZ oil for better engine life. Assumption?",
+      "question": "An advertisement says, \"Use XYZ oil for a longer engine life.\" Which assumption is implicit in this advertisement?",
       "options": [
-        "All same",
-        "No need",
-        "XYZ improves",
-        "Costly"
+        "All oils are the same",
+        "Engines do not need oil",
+        "XYZ oil improves engine life",
+        "XYZ oil is the most costly"
       ],
       "correctAnswer": "C",
-      "explanation": "Benefit assumed.",
+      "explanation": "The advertisement assumes that using XYZ oil will actually improve engine life.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1449,15 +1449,15 @@
       "topic": "Statement, Assumption & Conclusion",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Attend workshop to learn coding. Assumption?",
+      "question": "An advertisement says, \"Attend our workshop to learn coding.\" Which assumption is implicit in this advertisement?",
       "options": [
-        "Not learnable",
-        "No need",
-        "Books enough",
-        "Teaches coding"
+        "Coding cannot be learned",
+        "There is no need to learn coding",
+        "Books are sufficient to learn coding",
+        "The workshop teaches coding"
       ],
       "correctAnswer": "D",
-      "explanation": "Learning.",
+      "explanation": "The advertisement assumes that the workshop actually teaches coding.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1468,15 +1468,15 @@
       "topic": "Statement, Assumption & Conclusion",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "\"Apply early\" on ad. Assumption?",
+      "question": "An advertisement says, \"Apply early.\" Which assumption is implicit in this statement?",
       "options": [
-        "Early considered",
-        "Late better",
-        "No seats",
-        "All late"
+        "Applying early is considered advantageous",
+        "Applying late is better",
+        "There are no seats available",
+        "Everyone applies late"
       ],
       "correctAnswer": "A",
-      "explanation": "Consideration.",
+      "explanation": "The instruction to apply early assumes that applying early is beneficial or necessary.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1487,15 +1487,15 @@
       "topic": "Statement, Assumption & Conclusion",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Gov warns against smoking. Assumption?",
+      "question": "The government warns people against smoking. Which assumption is implicit in this warning?",
       "options": [
-        "Good",
-        "Harmful",
-        "Unaware",
-        "Cheap"
+        "Smoking is good for health",
+        "Smoking is harmful to health",
+        "People are unaware of smoking",
+        "Smoking is cheap"
       ],
       "correctAnswer": "B",
-      "explanation": "Harm.",
+      "explanation": "A warning against smoking assumes that smoking is harmful.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1506,15 +1506,15 @@
       "topic": "Statement, Assumption & Conclusion",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "Take this route to save time. Assumption?",
+      "question": "A sign says, \"Take this route to save time.\" Which assumption is implicit in this statement?",
       "options": [
-        "Scenic",
-        "No traffic",
-        "Faster",
-        "Same"
+        "The route is scenic",
+        "There is no traffic on any route",
+        "This route is faster than the alternatives",
+        "All routes take the same time"
       ],
       "correctAnswer": "C",
-      "explanation": "Faster.",
+      "explanation": "Saving time implies that this route is faster than the other available routes.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1525,15 +1525,15 @@
       "topic": "Statement, Assumption & Conclusion",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "Book now for discount. Assumption?",
+      "question": "An advertisement says, \"Book now to get a discount.\" Which assumption is implicit in this statement?",
       "options": [
-        "No demand",
-        "Prices rise",
-        "Discount exists",
-        "Free"
+        "There is no demand",
+        "Prices will rise later",
+        "A discount is actually available",
+        "The service is free"
       ],
       "correctAnswer": "C",
-      "explanation": "Exists.",
+      "explanation": "The advertisement assumes that a discount is genuinely available to those who book now.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1544,15 +1544,15 @@
       "topic": "Logical Deduction",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "All roses flowers, some flowers fade. Then?",
+      "question": "All roses are flowers and some flowers fade. Which conclusion follows?",
       "options": [
-        "All fade",
-        "No fade",
-        "All flowers roses",
+        "All roses fade",
+        "No rose fades",
+        "All flowers are roses",
         "Some roses may fade"
       ],
       "correctAnswer": "D",
-      "explanation": "Possible.",
+      "explanation": "Because some flowers fade and roses are flowers, it is possible that some roses fade, but it is not certain.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1563,15 +1563,15 @@
       "topic": "Logical Deduction",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Only graduates can apply. Tom applied. Concl?",
+      "question": "Only graduates can apply for a post. Tom applied for the post. Which conclusion follows?",
       "options": [
-        "Tom graduate",
-        "Not graduate",
-        "Maybe",
-        "Cannot say"
+        "Tom is a graduate",
+        "Tom is not a graduate",
+        "Tom may or may not be a graduate",
+        "Cannot be determined"
       ],
       "correctAnswer": "A",
-      "explanation": "Graduate.",
+      "explanation": "If only graduates can apply and Tom applied, Tom must be a graduate.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1582,15 +1582,15 @@
       "topic": "Logical Deduction",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "If P then Q. P true. Concl?",
+      "question": "If P is true, then Q is true. P is true. Which conclusion follows?",
       "options": [
-        "Q false",
-        "Q true",
-        "P false",
-        "None"
+        "Q is false",
+        "Q is true",
+        "P is false",
+        "None of these"
       ],
       "correctAnswer": "B",
-      "explanation": "Modus ponens.",
+      "explanation": "This is modus ponens: given P → Q and P, it follows that Q is true.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1601,15 +1601,15 @@
       "topic": "Logical Deduction",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "If P then Q. Q false. Concl?",
+      "question": "If P is true, then Q is true. Q is false. Which conclusion follows?",
       "options": [
-        "P true",
-        "Q true",
-        "P false",
-        "None"
+        "P is true",
+        "Q is true",
+        "P is false",
+        "None of these"
       ],
       "correctAnswer": "C",
-      "explanation": "Modus tollens.",
+      "explanation": "This is modus tollens: given P → Q and not Q, it follows that P is false.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1620,15 +1620,15 @@
       "topic": "Venn Diagrams",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Doctors,Lawyers,Women - all three intersection?",
+      "question": "In a Venn diagram showing doctors, lawyers and women, which region represents women who are both doctors and lawyers?",
       "options": [
-        "Only doctor",
-        "Only woman",
-        "None",
-        "Woman doctor lawyer"
+        "Only doctors",
+        "Only women",
+        "None of these",
+        "Women who are both doctors and lawyers"
       ],
       "correctAnswer": "D",
-      "explanation": "Intersection.",
+      "explanation": "The required region is the intersection of all three circles: doctors, lawyers and women.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1639,15 +1639,15 @@
       "topic": "Venn Diagrams",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Students,Athletes,Boys: some boys all three shown by?",
+      "question": "In a Venn diagram of students, athletes and boys, how is a boy who is both a student and an athlete represented?",
       "options": [
-        "Intersection all three",
-        "Two",
-        "Single",
-        "Outside"
+        "The region where all three circles intersect",
+        "The region where two circles intersect",
+        "A single circle only",
+        "Outside all three circles"
       ],
       "correctAnswer": "A",
-      "explanation": "Center.",
+      "explanation": "A boy who is both a student and an athlete belongs to all three categories, so he is represented by the intersection of all three circles.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1658,7 +1658,7 @@
       "topic": "Venn Diagrams",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "50 people: 30 tea,20 coffee,10 both. Neither?",
+      "question": "In a group of 50 people, 30 drink tea, 20 drink coffee, and 10 drink both. How many drink neither tea nor coffee?",
       "options": [
         "20",
         "10",
@@ -1666,7 +1666,7 @@
         "5"
       ],
       "correctAnswer": "B",
-      "explanation": "10.",
+      "explanation": "People who drink at least one beverage = 30 + 20 − 10 = 40. Therefore, people who drink neither = 50 − 40 = 10.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1677,15 +1677,15 @@
       "topic": "Venn Diagrams",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "All singers dancers, some dancers actors. Venn?",
+      "question": "All singers are dancers and some dancers are actors. Which Venn diagram best represents this relationship?",
       "options": [
-        "Separate",
-        "Actors inside singers",
-        "Singers inside dancers overlap actors",
-        "None"
+        "Three separate circles",
+        "The actors circle inside the singers circle",
+        "The singers circle inside the dancers circle, with the actors circle overlapping the dancers circle",
+        "None of these"
       ],
       "correctAnswer": "C",
-      "explanation": "Subset+overlap.",
+      "explanation": "All singers are dancers, so the singers circle lies inside the dancers circle. Some dancers are actors, so the actors circle overlaps the dancers circle.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1696,7 +1696,7 @@
       "topic": "Venn Diagrams",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "100:60 cricket,50 football,30 both. Only cricket?",
+      "question": "In a group of 100 people, 60 play cricket, 50 play football, and 30 play both. How many play only cricket?",
       "options": [
         "40",
         "20",
@@ -1704,7 +1704,7 @@
         "30"
       ],
       "correctAnswer": "D",
-      "explanation": "30.",
+      "explanation": "People who play only cricket = total cricket players − players of both = 60 − 30 = 30.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1715,7 +1715,7 @@
       "topic": "Puzzles",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Two fathers two sons in car - total?",
+      "question": "Two fathers and two sons are travelling in a car. What is the minimum number of people in the car?",
       "options": [
         "4",
         "3",
@@ -1723,7 +1723,7 @@
         "5"
       ],
       "correctAnswer": "B",
-      "explanation": "3.",
+      "explanation": "The group can consist of a grandfather, his son, and his grandson: the grandfather and father are two fathers, and the father and grandson are two sons.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1734,7 +1734,7 @@
       "topic": "Puzzles",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "17 sheep, all but 9 die. Left?",
+      "question": "A farmer has 17 sheep. All but 9 die. How many sheep are left?",
       "options": [
         "9",
         "8",
@@ -1742,7 +1742,7 @@
         "0"
       ],
       "correctAnswer": "A",
-      "explanation": "9.",
+      "explanation": "'All but 9' means all except 9 die, so 9 sheep are left.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1753,7 +1753,7 @@
       "topic": "Puzzles",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "5 people, each shakes hands once. Total?",
+      "question": "Five people each shake hands with every other person exactly once. How many handshakes take place in total?",
       "options": [
         "5",
         "15",
@@ -1761,7 +1761,7 @@
         "10"
       ],
       "correctAnswer": "D",
-      "explanation": "10.",
+      "explanation": "The number of handshakes is the number of pairs that can be formed from 5 people: 5 × 4 / 2 = 10.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1772,7 +1772,7 @@
       "topic": "Puzzles",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Wolf,goat,cabbage crossing. First move?",
+      "question": "A farmer must cross a river with a wolf, a goat and a cabbage. The boat can carry only the farmer and one item at a time. If left alone, the wolf will eat the goat and the goat will eat the cabbage. What should the farmer take across first?",
       "options": [
         "Take wolf",
         "Take cabbage",
@@ -1780,7 +1780,7 @@
         "Take all"
       ],
       "correctAnswer": "C",
-      "explanation": "Goat.",
+      "explanation": "The farmer must take the goat first, because the wolf and cabbage can be left together safely.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1791,15 +1791,15 @@
       "topic": "Puzzles",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "3 boxes mislabeled: apples,oranges,both. Pick from?",
+      "question": "There are three boxes labelled \"Apples\", \"Oranges\" and \"Both\", but every label is wrong. From which box should you pick one fruit to determine the contents of all three boxes?",
       "options": [
-        "apple",
-        "\"both\" box",
-        "orange",
-        "any"
+        "The box labelled \"Apples\"",
+        "The box labelled \"Both\"",
+        "The box labelled \"Oranges\"",
+        "Any box"
       ],
       "correctAnswer": "B",
-      "explanation": "\"both\" box.",
+      "explanation": "Since every label is wrong, the box labelled 'Both' must contain only apples or only oranges. Picking from it reveals the contents of all three boxes.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1810,7 +1810,7 @@
       "topic": "Puzzles",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "8 balls, one heavier. Min weighings?",
+      "question": "You have 8 identical-looking balls, one of which is heavier than the rest. Using a balance scale, what is the minimum number of weighings needed to find the heavier ball?",
       "options": [
         "2",
         "1",
@@ -1818,7 +1818,7 @@
         "4"
       ],
       "correctAnswer": "A",
-      "explanation": "2.",
+      "explanation": "Divide the balls into groups of 3, 3 and 2. Weigh the two groups of 3; the heavier group contains the heavy ball. A second weighing identifies it. If they balance, the heavy ball is in the group of 2, and one more weighing is needed—so at most 2 weighings.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1829,15 +1829,15 @@
       "topic": "Calendar & Clock",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Jan 1 2000 Sat, Jan 1 2001?",
+      "question": "If 1 January 2000 was a Saturday, what day of the week was 1 January 2001?",
       "options": [
         "Monday",
         "Sunday",
         "Tuesday",
         "Friday"
       ],
-      "correctAnswer": "B",
-      "explanation": "+1 day (leap span), Sat+1=Sun.",
+      "correctAnswer": "A",
+      "explanation": "The year 2000 was a leap year, so the period from 1 January 2000 to 1 January 2001 contained 366 days, which is 52 weeks and 2 days. Saturday + 2 days = Monday.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1848,7 +1848,7 @@
       "topic": "Calendar & Clock",
       "difficulty": "Easy",
       "type": "Single Choice",
-      "question": "Feb 2000 days?",
+      "question": "How many days are there in February 2000?",
       "options": [
         "28",
         "30",
@@ -1856,7 +1856,7 @@
         "31"
       ],
       "correctAnswer": "C",
-      "explanation": "Leap.",
+      "explanation": "The year 2000 was a leap year (divisible by 400), so February had 29 days.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1886,7 +1886,7 @@
       "topic": "Calendar & Clock",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Angle at 3:15?",
+      "question": "What is the angle between the hour hand and the minute hand of a clock at 3:15?",
       "options": [
         "7.5°",
         "0°",
@@ -1894,7 +1894,7 @@
         "22.5°"
       ],
       "correctAnswer": "A",
-      "explanation": "7.5°.",
+      "explanation": "At 3:15, the minute hand is at 90° and the hour hand is at 3 × 30° + 15 × 0.5° = 97.5°. The difference is 97.5° − 90° = 7.5°.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
@@ -1905,7 +1905,7 @@
       "topic": "Calendar & Clock",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "Clock gains 2 min/hr set correct noon. 6pm shows?",
+      "question": "A clock gains 2 minutes every hour. If it is set correctly at noon, what time will the clock show at 6 pm?",
       "options": [
         "6:00 pm",
         "6:12 pm",
@@ -1913,7 +1913,7 @@
         "6:10 pm"
       ],
       "correctAnswer": "B",
-      "explanation": "6*2=12 min gain.",
+      "explanation": "In 6 real hours, the clock gains 6 × 2 = 12 minutes. Therefore, at 6 pm it will show 6:12 pm.",
       "marks": 1,
       "timeLimitSec": 60,
       "tags": []
