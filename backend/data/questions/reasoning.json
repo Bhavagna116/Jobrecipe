@@ -48,7 +48,7 @@
       "topic": "Number Series",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "In a certain cipher code, ",
+      "question": "In a certain cipher code, \"CAT\" is coded as 24 and \"DOG\" is coded as 26. What is the code for \"PIG\"? (P=16, I=9, G=7)",
       "options": [
         "30",
         "34",
@@ -88,7 +88,7 @@
       "topic": "Logical Deduction",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Statement: ",
+      "question": "Statement: \"Adopting agile pair programming reduces software bugs by 40%.\" Which assumption is implicit?",
       "options": [
         "All programmers prefer working in pairs rather than individually",
         "Collaborative code review and continuous feedback directly mitigate defect rates",
@@ -128,7 +128,7 @@
       "topic": "Logical Deduction",
       "difficulty": "Medium",
       "type": "Single Choice",
-      "question": "Pointing to a photograph, Rohit says: ",
+      "question": "Pointing to a photograph, Rohit says: \"She is the daughter of my grandfather's only son.\" How is Rohit related to the girl?",
       "options": [
         "Father",
         "Brother",
@@ -166,7 +166,7 @@
       "topic": "Number Series",
       "difficulty": "Hard",
       "type": "Single Choice",
-      "question": "If ",
+      "question": "If \"LIGHT\" is coded as \"MJHIU\", how is \"FLAME\" coded in that language?",
       "options": [
         "GMBND",
         "GLBNE",
