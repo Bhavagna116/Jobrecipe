@@ -250,7 +250,7 @@ export const register = async (req, res) => {
     await client.query(
       `INSERT INTO candidate_profiles
         (id, user_id, name, email, mobile, college, degree, branch, specialization, country, state, city, graduation_year, experience_level, gender, roll_number, tenth_school, tenth_marks, twelfth_college, twelfth_diploma_marks, graduation_percentage, cgpa, backlogs, college_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
        ON CONFLICT (id) DO UPDATE SET
          college = EXCLUDED.college,
          college_id = EXCLUDED.college_id,
@@ -314,34 +314,11 @@ export const register = async (req, res) => {
     if (client) await client.query("ROLLBACK").catch(() => {});
     if (err.code === "23505")
       return res.status(409).json({ success: false, error: "An account with this email already exists. Please login instead." });
-    console.warn("DB register error, falling back to memory:", err.message);
-    const id = "cand-" + Date.now();
-    const candidate = {
-      id, name: candidateName, email: candidateEmail, mobile: cleanMobile,
-      college: candidateCollege, collegeId: resolvedCollegeId, college_id: resolvedCollegeId, degree: degree || "B.Tech", branch: candidateBranch,
-      specialization: candidateSpecialization, country: candidateCountry,
-      state: candidateState, city: candidateCity,
-      graduationYear: candidateGraduationYear, graduation_year: candidateGraduationYear,
-      experienceLevel: experienceLevel || 'Fresher',
-      gender: candidateGender,
-      rollNumber: candidateRollNumber,
-      tenthSchool: candidateTenthSchool, tenth_school: candidateTenthSchool,
-      tenthMarks: candidateTenthMarks, tenth_marks: candidateTenthMarks,
-      twelfthCollege: candidateTwelfthCollege, twelfth_college: candidateTwelfthCollege,
-      twelfthDiplomaMarks: candidateTwelfthMarks, twelfth_diploma_marks: candidateTwelfthMarks,
-      graduationPercentage: candidateCgpa, graduation_percentage: candidateCgpa,
-      cgpa: candidateCgpa, sgpa: candidateCgpa,
-      backlogs: candidateBacklogs,
-      jobReadinessScore: 0, readinessLevel: "In Progress", readinessStatus: "In Progress",
-      aptitudeScore: 0, reasoningScore: 0, technicalScore: 0, verbalScore: 0, codingScore: 0,
-      assessmentsCompleted: 0
-    };
-    saveUser({ id, name: candidateName, email: candidateEmail, role: 'candidate', candidate });
-    const tokenPayload = { id, email: candidateEmail, name: candidateName, role: "candidate" };
-    const accessToken  = signAccessToken(tokenPayload);
-    const refreshToken = signRefreshToken(tokenPayload);
-    res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOpts());
-    return res.status(201).json({ success: true, token: accessToken, candidate });
+    // Do not fake success when the database is reachable but the insert fails:
+    // an in-memory account cannot be found by the login endpoint, so the user
+    // would be told registration succeeded and then be unable to sign in.
+    console.error("Candidate registration failed:", err.message);
+    return res.status(500).json({ success: false, error: "Registration failed. Please try again." });
   } finally {
     if (client) client.release();
   }
