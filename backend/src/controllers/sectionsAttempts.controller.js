@@ -1,6 +1,11 @@
 import { pool, getDbStatus } from '../db/pool.js';
 import crypto from 'crypto';
-import { clearAssessmentsCache, ASSESSMENT_SET_CODES, clampSetCount } from './assessments.controller.js';
+import {
+  clearAssessmentsCache,
+  ASSESSMENT_SET_CODES,
+  clampSetCount,
+  candidateCanAccessAssessment
+} from './assessments.controller.js';
 import { fallbackAssessments, fallbackQuestions } from '../mockFallback.js';
 import { serverError } from '../utils/httpError.js';
 
@@ -83,6 +88,14 @@ export const getAssessmentSections = async (req, res) => {
     }
 
     const isAdmin = req.user?.role === 'admin';
+
+    if (req.user?.role === 'candidate') {
+      const allowed = await candidateCanAccessAssessment(req.params.id, req.user);
+      if (!allowed) {
+        return res.status(404).json({ success: false, error: 'Assessment not available.' });
+      }
+    }
+
     const sections = await orderedSectionsOf(req.params.id);
     const data = [];
 
@@ -314,6 +327,14 @@ export const startAssessmentAttempt = async (req, res) => {
       return res.status(404).json({ error: 'Assessment not found.' });
     }
     const assessment = asmRes.rows[0];
+
+    if (req.user?.role === 'candidate') {
+      const allowed = await candidateCanAccessAssessment(assessmentId, req.user);
+      if (!allowed) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ success: false, error: 'Assessment not available.' });
+      }
+    }
 
     const existingRes = await client.query(
       `SELECT id, status, set_code FROM test_attempts

@@ -161,15 +161,30 @@ export const AdminAssessmentsPage = () => {
   const isFullTrack = (newAssessment.category || '').toLowerCase() === 'full';
   const isSectionalTrack = !isCodingTrack && !isAllMixTrack && !isFullTrack;
 
-  // Fetch colleges list for college linking
+  // Fetch colleges list for college linking. Use the authenticated admin
+  // endpoint (returns every college); fall back to the public active-only list.
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.auth.colleges();
-        if (res?.ok && Array.isArray(res.data)) {
+        const res = await api.colleges.list();
+        if (res?.ok && Array.isArray(res.data) && res.data.length > 0) {
           setCollegesList(res.data);
+          return;
         }
-      } catch { }
+        const fallback = await api.auth.colleges();
+        if (fallback?.ok && Array.isArray(fallback.data)) {
+          setCollegesList(fallback.data);
+        }
+      } catch (err) {
+        try {
+          const fallback = await api.auth.colleges();
+          if (fallback?.ok && Array.isArray(fallback.data)) {
+            setCollegesList(fallback.data);
+          }
+        } catch {
+          addToast?.('Could not load colleges. Please refresh the page.', 'error');
+        }
+      }
     })();
   }, []);
 

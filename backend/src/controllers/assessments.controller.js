@@ -27,6 +27,50 @@ export const clearAssessmentsCache = () => {
 };
 
 /**
+ * Resolve the college a candidate belongs to. The candidate access token does
+ * not currently carry college_id, so fall back to candidate_profiles/users.
+ */
+export const resolveCollegeIdForUser = async (user) => {
+  if (!user?.id || !pool || !getDbStatus()) return user?.college_id || null;
+  if (user.college_id) return user.college_id;
+  try {
+    const res = await pool.query(
+      `SELECT college_id FROM users WHERE id = $1
+       UNION
+       SELECT college_id FROM candidate_profiles WHERE id = $1 OR user_id = $1`,
+      [user.id]
+    );
+    return res.rows.map((r) => r.college_id).find(Boolean) || null;
+  } catch (err) {
+    console.warn('[assessments] college lookup failed:', err.message);
+    return null;
+  }
+};
+
+/**
+ * An assessment with no assessment_colleges rows is available to everyone.
+ * Otherwise only candidates from a linked college may see or start it.
+ */
+export const candidateCanAccessAssessment = async (assessmentId, user, collegeIdOverride) => {
+  if (!assessmentId || !pool || !getDbStatus()) return true;
+  try {
+    const links = await pool.query(
+      'SELECT college_id FROM assessment_colleges WHERE assessment_id = $1',
+      [assessmentId]
+    );
+    if (links.rows.length === 0) return true;
+    const collegeId = collegeIdOverride !== undefined
+      ? collegeIdOverride
+      : await resolveCollegeIdForUser(user);
+    if (!collegeId) return false;
+    return links.rows.some((row) => String(row.college_id) === String(collegeId));
+  } catch (err) {
+    console.warn('[assessments] college access check failed:', err.message);
+    return false;
+  }
+};
+
+/**
  * Prefetch the candidate assessment list at startup. Mirrors the candidate
  * branch of getAllAssessments (archived assessments excluded, no college
  * filter) so the first dashboard load is served from memory.
@@ -85,26 +129,48 @@ export const getAllAssessments = async (req, res) => {
       return res.json({ success: true, data: [] });
     }
 
-    const now = Date.now();
-
     // Archived assessments are hidden from candidates but still visible to admins
     const includeArchived = req.user?.role === 'admin';
     const isCollegeAdmin = req.user?.role === 'college_admin';
-    const userCollegeId = req.user?.college_id || null;
+    const isCandidate = req.user?.role === 'candidate';
+    let userCollegeId = req.user?.college_id || null;
 
-    // Cache serves the candidate view only (admin view must stay fresh & must not poison it)
-    if (!includeArchived && assessmentsCache && (now - lastAssessmentsFetch < CACHE_TTL_MS)) {
-      return res.json(assessmentsCache);
+    if (isCandidate && !userCollegeId) {
+      userCollegeId = await resolveCollegeIdForUser(req.user);
     }
 
-    // Build college filter for college_admin: only show assessments linked to their college
-    let collegeFilter = '';
+    // The previous global cache was not scoped by college, so it could leak
+    // assessments across tenants. Always query with the requester's scope.
     const queryParams = [];
+
+    if (isCollegeAdmin && !userCollegeId) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Build college filter:
+    // - college_admin: only assessments linked to their college
+    // - candidate: global assessments (no college links) + assessments linked
+    //   to their college
+    let collegeFilter = '';
     if (isCollegeAdmin && userCollegeId) {
       collegeFilter = `AND EXISTS (
         SELECT 1 FROM assessment_colleges ac WHERE ac.assessment_id = a.id AND ac.college_id = $${queryParams.length + 1}
       )`;
       queryParams.push(userCollegeId);
+    } else if (isCandidate) {
+      queryParams.push(userCollegeId || null);
+      collegeFilter = `AND (
+        NOT EXISTS (
+          SELECT 1 FROM assessment_colleges ac WHERE ac.assessment_id = a.id
+        )
+        OR (
+          $${queryParams.length}::varchar IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM assessment_colleges ac
+            WHERE ac.assessment_id = a.id AND ac.college_id = $${queryParams.length}
+          )
+        )
+      )`;
     }
 
     const result = await pool.query(`
@@ -143,14 +209,7 @@ export const getAllAssessments = async (req, res) => {
         collegeIds: Array.isArray(r.college_ids) ? r.college_ids : [],
       };
     });
-    const responsePayload = { success: true, data: rows };
-
-    if (!includeArchived) {
-      assessmentsCache = responsePayload;
-      lastAssessmentsFetch = now;
-    }
-
-    res.json(responsePayload);
+    res.json({ success: true, data: rows });
   } catch (err) {
     serverError(res, err, 'assessments.controller');
   }
@@ -159,6 +218,11 @@ export const getAllAssessments = async (req, res) => {
 // GET /api/assessments/:id
 export const getAssessmentById = async (req, res) => {
   try {
+    if (req.user?.role === 'candidate') {
+      const allowed = await candidateCanAccessAssessment(req.params.id, req.user);
+      if (!allowed) return res.status(404).json({ error: 'Assessment not found.' });
+    }
+
     const result = await pool.query(`
       SELECT 
         a.*,
@@ -635,6 +699,13 @@ export const getAssessmentQuestions = async (req, res) => {
                         (req.headers?.['x-allow-retake'] === 'true' && isAdmin) || 
                         (process.env.ALLOW_ASSESSMENT_RETAKE === 'true' && isAdmin) || 
                         isAdmin;
+
+    if (req.user?.role === 'candidate') {
+      const allowed = await candidateCanAccessAssessment(req.params.id, req.user);
+      if (!allowed) {
+        return res.status(404).json({ success: false, error: 'Assessment not available.' });
+      }
+    }
 
     // Hidden (Archived) assessments are not available to candidates. Admins
     // always can; a candidate already mid-attempt may continue (resume) so
