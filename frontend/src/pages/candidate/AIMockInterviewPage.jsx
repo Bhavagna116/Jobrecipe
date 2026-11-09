@@ -181,6 +181,7 @@ export const AIMockInterviewPage = () => {
     isLocked: false,
     lockReason: 'AI Mock Interview sessions are currently locked by the administrator.',
     questionCount: 3,
+    answerTimeSeconds: 30,
     difficulty: 'Moderate',
     maxWarnings: 3,
     objectDetection: true,
@@ -230,6 +231,10 @@ export const AIMockInterviewPage = () => {
   // Resume confirmation modal states
   const [showResumeConfirmModal, setShowResumeConfirmModal] = useState(false);
   const [resumeConfirmChoice, setResumeConfirmChoice] = useState(null); // 'yes' | 'no'
+
+  // Pre-interview rules / disclaimer
+  const [showInterviewRules, setShowInterviewRules] = useState(false);
+  const [rulesAcknowledged, setRulesAcknowledged] = useState(false);
 
   // Resume analysis state initialized only if a resume was actually uploaded
   const [analysisResult, setAnalysisResult] = useState(() => {
@@ -334,10 +339,13 @@ export const AIMockInterviewPage = () => {
   // speaking; null = they haven't started yet). Auto-advances on time-up or silence.
   const [answerSecondsLeft, setAnswerSecondsLeft] = useState(null);
   const [answerAutoNotice, setAnswerAutoNotice] = useState('');
-  // Sarvam rejects clips >= 30s, so the answer window is split into two ~29s
-  // segments (29 + 29 = 58s, effectively one minute per question).
+  // Admin-configurable per-question answer window (15-300s). Recording is
+  // split into Sarvam-safe 29s chunks, so the window can be 30s or longer.
   const SARVAM_CHUNK_SECONDS = 29;
-  const MAX_ANSWER_SECONDS = SARVAM_CHUNK_SECONDS * 2;
+  const MAX_ANSWER_SECONDS = Math.min(
+    300,
+    Math.max(15, Number(adminSettings?.answerTimeSeconds) || 30)
+  );
   const SILENCE_SECONDS = 4;     // advance once the candidate stops talking this long
 
   // Pre-load and cache browser SpeechSynthesis voices
@@ -946,10 +954,27 @@ export const AIMockInterviewPage = () => {
     }
   };
 
+  const openInterviewRules = () => {
+    setRulesAcknowledged(false);
+    setShowInterviewRules(true);
+  };
+
+  const handleStartInterviewFromRules = () => {
+    if (!rulesAcknowledged) return;
+    setShowInterviewRules(false);
+    setRulesAcknowledged(false);
+    startInterviewRoom();
+  };
+
+  const handleCancelInterviewRules = () => {
+    setShowInterviewRules(false);
+    setRulesAcknowledged(false);
+  };
+
   const handleProceedToRoom = () => {
-    // Resume is optional — if they already uploaded one, go straight in.
+    // Resume is optional — if they already uploaded one, show the rules.
     if (hasUploadedResume) {
-      startInterviewRoom();
+      openInterviewRules();
       return;
     }
     // Otherwise first ask whether they have a resume.
@@ -974,7 +999,7 @@ export const AIMockInterviewPage = () => {
   const handleResumeConfirmProceedWithout = () => {
     // User confirmed they want to proceed without resume
     setShowResumeConfirmModal(false);
-    startInterviewRoom();
+    openInterviewRules();
   };
 
   const handleResumeConfirmCancel = () => {
@@ -1708,19 +1733,23 @@ export const AIMockInterviewPage = () => {
       if (resetWindow) startAnswerWindow();
       sarvamSegmentCountRef.current += 1;
 
-      // Only the first segment schedules a rotation. The second segment runs
-      // until the answer timer / manual submit stops it at ~58s.
-      if (sarvamSegmentCountRef.current === 1) {
-        clearSarvamSegmentTimer();
-        sarvamSegmentTimerRef.current = setTimeout(() => {
-          sarvamSegmentTimerRef.current = null;
-          const active = sarvamRecorderRef.current;
-          if (active && active.state !== 'inactive') {
-            sarvamRotatingRef.current = true;
-            stopSarvamRecorder(active);
-          }
-        }, SARVAM_CHUNK_SECONDS * 1000);
-      }
+      // Every segment rotates at the 29s boundary so no single Sarvam request
+      // can exceed its 30s limit, regardless of the configured answer time.
+      clearSarvamSegmentTimer();
+      sarvamSegmentTimerRef.current = setTimeout(() => {
+        sarvamSegmentTimerRef.current = null;
+        const active = sarvamRecorderRef.current;
+        if (!active || active.state === 'inactive') return;
+        const elapsed = answerStartedAtRef.current
+          ? Date.now() - answerStartedAtRef.current
+          : 0;
+        if (elapsed < MAX_ANSWER_SECONDS * 1000) {
+          sarvamRotatingRef.current = true;
+        }
+        // Always stop the segment at 29s. If the answer window is over, the
+        // onstop handler will not start another segment.
+        stopSarvamRecorder(active);
+      }, SARVAM_CHUNK_SECONDS * 1000);
 
       return recorder;
     } catch (err) {
@@ -2659,7 +2688,7 @@ export const AIMockInterviewPage = () => {
         answerTimerRef.current = null;
       }
     };
-  }, [sessionActive, agentState, currentQIndex]);
+  }, [sessionActive, agentState, currentQIndex, MAX_ANSWER_SECONDS]);
 
   // ── Start Interview Session ──
   const handleStartSession = async () => {
@@ -3821,7 +3850,7 @@ export const AIMockInterviewPage = () => {
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm shadow-md shadow-brand-600/20 transition-all cursor-pointer font-sans"
                   >
                     <ArrowRight className="w-4 h-4" />
-                    <span>Yes, Start Interview</span>
+                    <span>Yes, Continue to Rules</span>
                   </button>
                   <button
                     type="button"
@@ -3840,6 +3869,146 @@ export const AIMockInterviewPage = () => {
                 <p className="text-slate-600 font-medium">Opening file picker...</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Pre-Interview Rules / Disclaimer */}
+      {showInterviewRules && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[92vh] overflow-y-auto">
+            <div className="p-5 sm:p-6 border-b border-slate-100 flex items-start gap-3">
+              <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 flex-shrink-0">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900 font-sans">Before You Begin — Interview Rules</h3>
+                <p className="text-xs text-slate-500 mt-1 font-sans">
+                  Please read and acknowledge these rules. They are enforced by the AI proctoring system.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-5 sm:p-6 space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block">Answer Time</span>
+                  <span className="text-sm font-black text-slate-900 font-mono">{MAX_ANSWER_SECONDS}s</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block">Questions</span>
+                  <span className="text-sm font-black text-slate-900 font-mono">{Math.min(4, Math.max(3, Number(adminSettings.questionCount) || 3))}</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block">Warnings</span>
+                  <span className="text-sm font-black text-slate-900 font-mono">{Math.max(1, Number(adminSettings.maxWarnings) || 3)}</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center min-w-0">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block">Role</span>
+                  <span className="text-sm font-black text-slate-900 font-mono truncate block">{targetRole || 'Selected role'}</span>
+                </div>
+              </div>
+
+              <ul className="space-y-3">
+                <li className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-brand-50 border border-brand-200 text-brand-600 flex items-center justify-center flex-shrink-0">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-bold text-slate-900">Time limit per question</strong>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      You have <strong>{MAX_ANSWER_SECONDS} seconds</strong> to answer each question. If time runs out, your answer is submitted automatically and the interview moves on.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-cyan-50 border border-cyan-200 text-cyan-600 flex items-center justify-center flex-shrink-0">
+                    <Eye className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-bold text-slate-900">Eye contact and camera presence</strong>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Keep your face visible and maintain eye contact with the camera. Looking away, looking down at a phone or notes, or leaving the frame is recorded and may trigger a warning.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center flex-shrink-0">
+                    <Maximize className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-bold text-slate-900">Fullscreen mode</strong>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      The interview runs in fullscreen. Do not exit fullscreen, switch tabs, minimise the window, or move to another application.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center flex-shrink-0">
+                    <ShieldAlert className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-bold text-slate-900">Prohibited items and people</strong>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Phones, notes, additional people, and loud background voices are detected. Each sustained violation counts toward your <strong>{Math.max(1, Number(adminSettings.maxWarnings) || 3)}-warning limit</strong>; reaching the limit ends the interview.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center flex-shrink-0">
+                    <Activity className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-bold text-slate-900">Posture and behavioural telemetry</strong>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Face presence, gaze, attention, posture/engagement, and answer timing are measured. These metrics appear in your interview report and are not used to fabricate scores.
+                    </p>
+                  </div>
+                </li>
+              </ul>
+
+              <label
+                className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  rulesAcknowledged
+                    ? 'bg-brand-50 border-brand-400 ring-1 ring-brand-400'
+                    : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={rulesAcknowledged}
+                  onChange={(e) => setRulesAcknowledged(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                />
+                <span className="text-xs text-slate-700 leading-relaxed font-medium">
+                  I have read and understood the rules. I agree to remain in fullscreen, keep my face and eyes visible, and follow the proctoring requirements.
+                </span>
+              </label>
+            </div>
+
+            <div className="p-5 sm:p-6 border-t border-slate-100 flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={handleCancelInterviewRules}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-bold text-sm transition-all cursor-pointer font-sans"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Go Back</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleStartInterviewFromRules}
+                disabled={!rulesAcknowledged}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all font-sans ${
+                  rulesAcknowledged
+                    ? 'bg-brand-600 hover:bg-brand-700 text-white shadow-md shadow-brand-600/20 cursor-pointer'
+                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                }`}
+              >
+                <Video className="w-4 h-4" />
+                <span>I Understand — Start Interview</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -4294,7 +4463,7 @@ export const AIMockInterviewPage = () => {
                     </span>
                     <span className="font-semibold">
                       {answerSecondsLeft === null
-                        ? 'Max ~1 min per answer (2 × 29s chunks)'
+                        ? `Max ${MAX_ANSWER_SECONDS}s per answer`
                         : `${answerSecondsLeft}s left`}
                     </span>
                   </div>

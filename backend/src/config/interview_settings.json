@@ -2,6 +2,7 @@
   "isLocked": false,
   "lockReason": "Please complete your Job Readiness Assessment and tests to unlock the AI Mock Interview session.",
   "questionCount": 3,
+  "answerTimeSeconds": 30,
   "difficulty": "Moderate",
   "maxWarnings": 3,
   "strictProctoring": true,

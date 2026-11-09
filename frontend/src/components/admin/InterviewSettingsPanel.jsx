@@ -16,7 +16,8 @@ export const InterviewSettingsPanel = () => {
   const [settings, setSettings] = useState({
     isLocked: false,
     lockReason: 'AI Mock Interview sessions are currently locked by the recruitment administrator. Please check back later.',
-    questionCount: 1,
+    questionCount: 3,
+    answerTimeSeconds: 30,
     difficulty: 'Moderate',
     maxWarnings: 3,
     strictProctoring: true,
@@ -253,6 +254,54 @@ export const InterviewSettingsPanel = () => {
                 className="w-20 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 text-center"
               />
               <span className="text-[11px] text-slate-400">(3–4 only)</span>
+            </div>
+
+            <div className="pt-3 mt-2 border-t border-slate-100 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                  Answer Time Per Question
+                </label>
+                <span className="text-[11px] font-mono font-bold text-brand-700 bg-brand-50 border border-brand-200 px-2 py-0.5 rounded">
+                  {settings.answerTimeSeconds}s
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[30, 60, 90].map((seconds) => (
+                  <button
+                    key={seconds}
+                    type="button"
+                    onClick={() => setSettings((prev) => ({ ...prev, answerTimeSeconds: seconds }))}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      Number(settings.answerTimeSeconds) === seconds
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {seconds}s
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Custom:</span>
+                <input
+                  type="number"
+                  min="15"
+                  max="300"
+                  value={settings.answerTimeSeconds}
+                  onChange={(e) => {
+                    const next = Number(e.target.value) || 30;
+                    setSettings((prev) => ({
+                      ...prev,
+                      answerTimeSeconds: Math.min(300, Math.max(15, next))
+                    }));
+                  }}
+                  className="w-20 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 text-center"
+                />
+                <span className="text-[11px] text-slate-400">(15–300s)</span>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Each answer is recorded in Sarvam-safe 29s chunks, so longer limits are handled automatically.
+              </p>
             </div>
           </div>
 

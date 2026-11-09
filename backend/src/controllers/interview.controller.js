@@ -1280,6 +1280,9 @@ const loadSettingsFromDisk = () => {
       const parsed = JSON.parse(fs.readFileSync(SETTINGS_FILE_PATH, 'utf8'));
       // Enforce the 3-4 question policy even if an older settings file exists.
       parsed.questionCount = Math.min(4, Math.max(3, Number(parsed.questionCount) || 3));
+      // Per-question answer window; 15s-5min. Sarvam-safe chunking handles any
+      // value above 29s automatically on the client.
+      parsed.answerTimeSeconds = Math.min(300, Math.max(15, Number(parsed.answerTimeSeconds) || 30));
       return parsed;
     }
   } catch (err) {
@@ -1289,6 +1292,7 @@ const loadSettingsFromDisk = () => {
     isLocked: false,
     lockReason: 'AI Mock Interview sessions are currently locked by the recruitment administrator.',
     questionCount: 3,
+    answerTimeSeconds: 30,
     difficulty: 'Moderate',
     maxWarnings: 3,
     strictProctoring: true,
@@ -1319,6 +1323,7 @@ export const updateInterviewSettings = async (req, res) => {
       ...current,
       ...req.body,
       questionCount: req.body.questionCount ? Math.min(4, Math.max(3, Number(req.body.questionCount))) : current.questionCount,
+      answerTimeSeconds: req.body.answerTimeSeconds ? Math.min(300, Math.max(15, Number(req.body.answerTimeSeconds))) : current.answerTimeSeconds,
       maxWarnings: req.body.maxWarnings ? Math.min(10, Math.max(1, Number(req.body.maxWarnings))) : current.maxWarnings,
       isLocked: typeof req.body.isLocked === 'boolean' ? req.body.isLocked : current.isLocked,
       updatedAt: new Date().toISOString()
