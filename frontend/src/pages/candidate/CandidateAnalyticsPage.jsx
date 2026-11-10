@@ -804,7 +804,7 @@ export default function CandidateAnalyticsPage() {
                 <div>
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Incorrect</span>
                   <span className="text-2xl font-black text-rose-600">{displayResultMetrics.incorrectCount} Qs</span>
-                  <span className="block text-[11px] text-slate-400 font-medium">{displayResultMetrics.unansweredCount || 0} unanswered</span>
+                  {/* <span className="block text-[11px] text-slate-400 font-medium">{displayResultMetrics.unansweredCount || 0} unanswered</span> */}
                 </div>
               </div>
             </div>

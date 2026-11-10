@@ -346,7 +346,7 @@ export const AIMockInterviewPage = () => {
     300,
     Math.max(15, Number(adminSettings?.answerTimeSeconds) || 30)
   );
-  const SILENCE_SECONDS = 4;     // advance once the candidate stops talking this long
+  const SILENCE_SECONDS = 7;     // advance once the candidate stops talking this long
 
   // Pre-load and cache browser SpeechSynthesis voices
   useEffect(() => {

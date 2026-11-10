@@ -42,7 +42,7 @@ export const Sidebar = ({ isOpen, onClose }) => {
     { id: 'admin-candidates', label: 'Candidates Roster', icon: Users, badge: candidatesList ? candidatesList.length.toString() : '0' },
     ...(!isCollegeAdmin ? [
       { id: 'admin-questions', label: 'Question Bank', icon: Database, badge: null },
-      { id: 'admin-assessments', label: 'Assessments Wizard', icon: Layers, badge: '4' },
+      { id: 'admin-assessments', label: 'Assessments Wizard', icon: Layers, badge: null },
     ] : []),
     { id: 'admin-analytics', label: 'Analytics', icon: BarChart3, badge: null },
     ...(isSuperAdmin ? [{ id: 'admin-colleges', label: 'Colleges', icon: Building2, badge: null }] : []),
