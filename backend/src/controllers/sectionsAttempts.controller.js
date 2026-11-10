@@ -11,6 +11,15 @@ import { serverError } from '../utils/httpError.js';
 
 const newId = (prefix) => `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
+// Scoring: MCQs are worth 1 mark; a coding question is worth 10 marks.
+const DEFAULT_SECTION_MARKS = 1;
+const CODING_SECTION_MARKS = 10;
+const marksPerQuestionForSection = (name, stored) => {
+  if (/cod|prog/i.test(String(name || ''))) return CODING_SECTION_MARKS;
+  const n = Number(stored);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_SECTION_MARKS;
+};
+
 const parseJsonField = (value) => {
   if (value === null || value === undefined) return value;
   if (typeof value === 'string') {
@@ -106,7 +115,7 @@ export const getAssessmentSections = async (req, res) => {
         name: sec.name,
         description: sec.description,
         questionCount: Number(sec.question_count) || questions.length,
-        marksPerQuestion: Number(sec.marks_per_question) || 1,
+        marksPerQuestion: marksPerQuestionForSection(sec.name, sec.marks_per_question),
         durationMinutes: Number(sec.duration_minutes) || 30,
         displayOrder: sec.display_order,
         questionIds: questions.map(q => q.id),
@@ -254,7 +263,7 @@ export const replaceAssessmentSections = async (req, res) => {
         name: sec.name,
         description: sec.description,
         questionCount: Number(sec.question_count) || 0,
-        marksPerQuestion: Number(sec.marks_per_question) || 1,
+        marksPerQuestion: marksPerQuestionForSection(sec.name, sec.marks_per_question),
         durationMinutes: Number(sec.duration_minutes) || 30,
         displayOrder: sec.display_order,
         questionIds: qRes.rows.map(r => r.id),
@@ -311,7 +320,7 @@ const buildStartPayload = async (client, attempt, assessment, includeAnswer, ans
       id: row.section_id,
       name: row.name || 'All Questions',
       description: row.description || null,
-      marksPerQuestion: Number(row.marks_per_question) || 1,
+      marksPerQuestion: marksPerQuestionForSection(row.name, row.marks_per_question),
       displayOrder: Number(row.display_order) || i + 1,
       status: row.status,
       durationMinutes: Math.round((Number(row.time_limit_seconds) || 1800) / 60),
@@ -438,7 +447,47 @@ export const startAssessmentAttempt = async (req, res) => {
       // Assign a random paper set to this candidate based on the assessment's set_count.
       const setCount = clampSetCount(assessment.set_count);
       const allowedCodes = ASSESSMENT_SET_CODES.slice(0, setCount);
-      const assignedSetCode = allowedCodes[Math.floor(Math.random() * allowedCodes.length)];
+
+      // Random assignment, but never repeat a set that the candidate used in
+      // their recent attempts for this assessment. With 3 sets this cycles
+      // through all papers before repeating. History survives resets.
+      let choices = allowedCodes;
+      if (allowedCodes.length > 1) {
+        try {
+          await client.query('SAVEPOINT set_history_read');
+          const historyRes = await client.query(
+            `SELECT set_code FROM candidate_set_history
+             WHERE candidate_id = $1 AND assessment_id = $2
+             ORDER BY created_at DESC LIMIT $3`,
+            [candidateId, assessmentId, allowedCodes.length - 1]
+          );
+          await client.query('RELEASE SAVEPOINT set_history_read');
+          const recent = new Set(historyRes.rows.map(r => r.set_code));
+          const fresh = allowedCodes.filter(code => !recent.has(code));
+          if (fresh.length > 0) choices = fresh;
+        } catch (historyErr) {
+          // Non-fatal: fall back to a plain random pick.
+          await client.query('ROLLBACK TO SAVEPOINT set_history_read').catch(() => {});
+          await client.query('RELEASE SAVEPOINT set_history_read').catch(() => {});
+          console.warn('Could not read set history:', historyErr.message);
+        }
+      }
+      const assignedSetCode = choices[Math.floor(Math.random() * choices.length)];
+
+      try {
+        await client.query('SAVEPOINT set_history_write');
+        await client.query(
+          `INSERT INTO candidate_set_history (id, candidate_id, assessment_id, set_code)
+           VALUES ($1, $2, $3, $4)`,
+          [newId('csh'), candidateId, assessmentId, assignedSetCode]
+        );
+        await client.query('RELEASE SAVEPOINT set_history_write');
+      } catch (historyErr) {
+        await client.query('ROLLBACK TO SAVEPOINT set_history_write').catch(() => {});
+        await client.query('RELEASE SAVEPOINT set_history_write').catch(() => {});
+        console.warn('Could not record set history:', historyErr.message);
+      }
+
       const ins = await client.query(
         `INSERT INTO test_attempts (id, candidate_id, assessment_id, attempt_number, status, started_at, set_code)
          VALUES ($1, $2, $3, 1, 'InProgress', CURRENT_TIMESTAMP, $4)
@@ -628,7 +677,7 @@ export const completeSection = async (req, res) => {
           id: next.section_id,
           name: next.name || 'All Questions',
           description: next.description || null,
-          marksPerQuestion: Number(next.marks_per_question) || 1,
+          marksPerQuestion: marksPerQuestionForSection(next.name, next.marks_per_question),
           status: 'InProgress',
           timeLimitSeconds: Number(next.time_limit_seconds) || 1800,
           timeRemainingSeconds: timeRemainingFor(new Date(), next.time_limit_seconds),
@@ -716,11 +765,12 @@ export const submitAssessmentAttempt = async (req, res) => {
     };
 
     for (const row of qRes.rows) {
-      // Uniform marking: every question is worth exactly 1 mark.
-      const marks = 1;
       const cat = (row.category || 'Technical').trim();
       const topic = (row.topic || 'General').trim();
       const isCoding = row.type === 'Coding';
+      // Scoring: MCQs are worth 1 mark; coding is worth 10 and is graded per
+      // test case, rounded to the nearest whole mark.
+      const marks = isCoding ? 10 : 1;
 
       totalPossible += marks;
 
@@ -751,11 +801,12 @@ export const submitAssessmentAttempt = async (req, res) => {
 
       if (isCoding) {
         // Coding grading comes from the client-evaluated test results attached
-        // at final submit. Uniform marks are all-or-nothing.
+        // at final submit. Partial credit is per test case, rounded.
         const scorePct = Number(codingAnswer?.score ?? (codingAnswer?.passedTests && codingAnswer?.totalTests ? (codingAnswer.passedTests / codingAnswer.totalTests) * 100 : NaN));
         if (!Number.isNaN(scorePct)) {
-          isCorrect = scorePct >= 60;
-          earned = isCorrect ? marks : 0;
+          const clamped = Math.min(100, Math.max(0, scorePct));
+          earned = Math.min(marks, Math.round((clamped / 100) * marks));
+          isCorrect = clamped >= 60;
         }
       } else {
         const correctVal = row.correct_answer;

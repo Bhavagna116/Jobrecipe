@@ -189,8 +189,8 @@ export const AssessmentPage = () => {
               category: q.category || activeAssessment.category,
               topic: q.topic || 'General',
               difficulty: q.difficulty || activeAssessment.difficulty || 'Medium',
-              // Uniform marking: every question is worth exactly 1 mark.
-              marks: 1,
+              // Scoring: MCQs are worth 1 mark; coding is worth 10.
+              marks: (q.type === 'Coding' || /cod|prog/i.test(String(q.category || ''))) ? 10 : 1,
               options: typeof q.options === 'string' ? JSON.parse(q.options) : (q.options || []),
               test_cases: typeof q.test_cases === 'string' ? JSON.parse(q.test_cases) : (q.test_cases || []),
               starter_templates: typeof q.starter_templates === 'string' ? JSON.parse(q.starter_templates) : (q.starter_templates || null),
@@ -1356,7 +1356,7 @@ export const AssessmentPage = () => {
                       <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                         {currentQuestion?.type || 'Single Choice'}
                       </span>
-                      <span className="text-xs text-slate-400">• 1 Mark</span>
+                      <span className="text-xs text-slate-400">• {currentQuestion?.marks || 1} {Number(currentQuestion?.marks || 1) === 1 ? 'Mark' : 'Marks'}</span>
                     </div>
 
                     <button

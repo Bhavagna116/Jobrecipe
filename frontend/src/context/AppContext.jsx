@@ -1281,8 +1281,9 @@ export const AppProvider = ({ children }) => {
 
     asmQuestions.forEach((q) => {
       const isCoding = q.type === 'Coding' || q.category === 'Coding';
-      // Uniform marking: every question is worth exactly 1 mark.
-      const qMarks = 1;
+      // Scoring: MCQs are worth 1 mark; coding is worth 10 and is graded per
+      // test case, rounded to the nearest whole mark.
+      const qMarks = isCoding ? 10 : 1;
       const cat = (q.category || 'Technical').trim();
       const top = (q.topic || 'General').trim();
 
@@ -1325,12 +1326,13 @@ export const AppProvider = ({ children }) => {
       if (hasAnswered) {
         if (isCodingAnswer) {
           const scorePct = Number(userAns?.score ?? (userAns?.passedTests && userAns?.totalTests ? (userAns.passedTests / userAns.totalTests) * 100 : (userAns?.code ? 100 : 0)));
-          const earned = scorePct >= 60 ? qMarks : 0;
+          const clampedPct = Math.min(100, Math.max(0, Number.isFinite(scorePct) ? scorePct : 0));
+          const earned = Math.min(qMarks, Math.round((clampedPct / 100) * qMarks));
           totalObtainedMarks += earned;
           categoryStats[cat].obtainedMarks += earned;
           topicStats[top].obtainedMarks += earned;
 
-          if (scorePct >= 60) {
+          if (clampedPct >= 60) {
             correct += 1;
             categoryStats[cat].correctCount += 1;
             topicStats[top].correctCount += 1;

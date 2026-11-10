@@ -234,6 +234,18 @@ const schemaSQL = `
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 12a. candidate_set_history: Persists the paper set assigned to a candidate
+    --      across resets, so retakes don't immediately repeat the same set.
+    CREATE TABLE IF NOT EXISTS candidate_set_history (
+      id VARCHAR(64) PRIMARY KEY,
+      candidate_id VARCHAR(64) NOT NULL,
+      assessment_id VARCHAR(64) NOT NULL,
+      set_code VARCHAR(8) NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_candidate_set_history
+      ON candidate_set_history(candidate_id, assessment_id, created_at DESC);
+
     -- 12. candidate_answers: Individual saved answers for an attempt (save-as-you-go)
     CREATE TABLE IF NOT EXISTS candidate_answers (
       id VARCHAR(64) PRIMARY KEY,

@@ -273,32 +273,38 @@ export default function CandidateAnalyticsPage() {
       });
 
       if (matching.length > 0) {
-        // Uniform marking: every question is worth exactly 1 mark, so the
-        // section total is simply the number of questions in that section.
-        let total = 0;
+        // Marks come from the topic breakdown (MCQ 1 mark, coding 10 marks).
+        // Question counts stay separate for the correct/incorrect/unanswered UI.
+        let totalMarks = 0;
+        let obtainedMarks = 0;
+        let totalQuestions = 0;
         let correct = 0;
         let unanswered = 0;
         matching.forEach(item => {
           const totalQ = Math.max(0, Number(item.totalQuestions ?? 1));
-          const ratio = Number(item.totalMarks) > 0
-            ? Number(item.obtainedMarks ?? 0) / Number(item.totalMarks)
-            : 0;
+          const totalM = Math.max(0, Number(item.totalMarks ?? (totalQ > 1 ? totalQ : 1)));
+          const obtainedM = Math.max(0, Number(item.obtainedMarks ?? 0));
+          const ratio = totalM > 0 ? obtainedM / totalM : 0;
           const correctQ = item.correctCount !== undefined && item.correctCount !== null
             ? Number(item.correctCount)
             : Math.round(ratio * totalQ);
-          total += totalQ;
+          totalMarks += totalM;
+          obtainedMarks += obtainedM;
+          totalQuestions += totalQ;
           correct += Math.max(0, Math.min(totalQ, correctQ || 0));
           unanswered += Math.max(0, Number(item.unansweredCount ?? 0));
         });
-        const obtained = Math.min(correct, total);
+        const obtained = Math.min(Math.round(obtainedMarks), Math.round(totalMarks));
+        const total = Math.round(totalMarks);
         const pct = total > 0 ? Math.round((obtained / total) * 100) : 0;
         return {
           obtained,
           total,
           pct,
-          correct: obtained,
-          incorrect: Math.max(0, total - obtained - unanswered),
+          correct,
+          incorrect: Math.max(0, totalQuestions - correct - unanswered),
           unanswered,
+          totalQuestions,
           title: `${defaultCatName} Section`,
           isSubmitted: total > 0,
           inCurrentTest: Boolean(activeSubmission),
@@ -342,10 +348,10 @@ export default function CandidateAnalyticsPage() {
         obtainedMarks: secScore.obtained,
         totalMarks: secScore.total,
         accuracy: secScore.isSubmitted ? secScore.pct : 0,
-        correctCount: secScore.isSubmitted ? (secScore.correct ?? secScore.obtained) : 0,
-        incorrectCount: secScore.isSubmitted ? (secScore.incorrect ?? Math.max(0, secScore.total - secScore.obtained)) : 0,
+        correctCount: secScore.isSubmitted ? (secScore.correct ?? 0) : 0,
+        incorrectCount: secScore.isSubmitted ? (secScore.incorrect ?? Math.max(0, (secScore.totalQuestions || 0) - (secScore.correct || 0) - (secScore.unanswered || 0))) : 0,
         unansweredCount: secScore.isSubmitted ? (secScore.unanswered || 0) : 0,
-        totalQuestions: secScore.total || 0,
+        totalQuestions: secScore.totalQuestions ?? secScore.total ?? 0,
         timeTaken: '10 min',
         isFiltered: true,
         isSubmitted: secScore.isSubmitted

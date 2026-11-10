@@ -12,6 +12,12 @@ export const calculateDeterministicScore = (obtainedMarks, totalMarks) => {
   return Math.min(100, Math.max(0, Math.round((obtainedMarks / total) * 100)));
 };
 
+// Scoring: MCQs are worth 1 mark; a coding question is worth 10 marks and is
+// graded per test case, rounded to the nearest whole mark.
+const DEFAULT_QUESTION_MARKS = 1;
+const CODING_QUESTION_MARKS = 10;
+const isCodingCategory = (category) => /cod|prog/i.test(String(category || ''));
+
 // Flexible answer matcher that supports letter (A, B, C, D), index (0, 1, 2, 3), and option text
 const matchOptionAnswer = (userAns, correctAns, options) => {
   if (userAns === undefined || userAns === null) return false;
@@ -148,12 +154,13 @@ export const evaluateSubmission = async ({
   const questionMap = new Map();
   assessmentQuestions.forEach((q) => {
     const optList = typeof q.options === 'string' ? JSON.parse(q.options) : (q.options || []);
+    const category = (q.category || 'General').trim();
     questionMap.set(q.id, {
       id: q.id,
       correctAnswer: (q.correct_answer || '').trim().toUpperCase(),
-      category: (q.category || 'General').trim(),
+      category,
       topic: (q.topic || 'General').trim(),
-      marks: 1, // uniform: every question is worth exactly 1 mark
+      marks: isCodingCategory(category) ? CODING_QUESTION_MARKS : DEFAULT_QUESTION_MARKS,
       options: optList,
     });
   });
@@ -163,12 +170,13 @@ export const evaluateSubmission = async ({
     if (!questionMap.has(qId)) {
       const fb = fallbackQuestions.find(f => f.id === qId);
       if (fb) {
+        const category = (fb.category || 'General').trim();
         questionMap.set(fb.id, {
           id: fb.id,
           correctAnswer: (fb.correct_answer || fb.correctAnswer || '').trim().toUpperCase(),
-          category: (fb.category || 'General').trim(),
+          category,
           topic: (fb.topic || 'General').trim(),
-          marks: 1, // uniform: every question is worth exactly 1 mark
+          marks: isCodingCategory(category) ? CODING_QUESTION_MARKS : DEFAULT_QUESTION_MARKS,
           options: fb.options || [],
         });
       }
@@ -178,12 +186,13 @@ export const evaluateSubmission = async ({
   // If questionMap is still empty, match from fallbackQuestions pool
   if (questionMap.size === 0 && fallbackQuestions.length > 0) {
     fallbackQuestions.slice(0, 10).forEach(fb => {
+      const category = (fb.category || 'General').trim();
       questionMap.set(fb.id, {
         id: fb.id,
         correctAnswer: (fb.correct_answer || fb.correctAnswer || '').trim().toUpperCase(),
-        category: (fb.category || 'General').trim(),
+        category,
         topic: (fb.topic || 'General').trim(),
-        marks: 1, // uniform: every question is worth exactly 1 mark
+        marks: isCodingCategory(category) ? CODING_QUESTION_MARKS : DEFAULT_QUESTION_MARKS,
         options: fb.options || [],
       });
     });
@@ -235,10 +244,10 @@ export const evaluateSubmission = async ({
 
       if (hasAnswered) {
         if (isCodingAnswer) {
-          const codingScorePct = Number(userAnswer.score ?? (userAnswer.passedTests && userAnswer.totalTests ? (userAnswer.passedTests / userAnswer.totalTests) * 100 : 100));
-          // Uniform 1-mark questions are all-or-nothing: full marks when at
-          // least 60% of the test cases pass, otherwise zero.
-          const earned = codingScorePct >= 60 ? qMarks : 0;
+          const rawCodingScore = Number(userAnswer.score ?? (userAnswer.passedTests && userAnswer.totalTests ? (userAnswer.passedTests / userAnswer.totalTests) * 100 : 0));
+          const codingScorePct = Math.min(100, Math.max(0, Number.isFinite(rawCodingScore) ? rawCodingScore : 0));
+          // Per-test-case partial credit, rounded to the nearest whole mark.
+          const earned = Math.min(qMarks, Math.round((codingScorePct / 100) * qMarks));
           totalObtainedMarks += earned;
           categoryStats[qCategory].obtainedMarks += earned;
           topicStats[topicKey].obtainedMarks += earned;

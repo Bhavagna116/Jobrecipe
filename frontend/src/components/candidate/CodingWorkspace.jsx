@@ -699,7 +699,7 @@ export const CodingWorkspace = ({
           </span>
 
           <span className="text-zinc-400 font-medium text-[11px] hidden sm:inline">
-            1 Mark
+            {question?.marks || 10} Marks
           </span>
         </div>
 
