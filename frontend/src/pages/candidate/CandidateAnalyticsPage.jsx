@@ -12,6 +12,7 @@ import {
   Target,
   CheckCircle2,
   XCircle,
+  MinusCircle,
   Clock,
   RotateCcw,
   Sparkles,
@@ -219,163 +220,114 @@ export default function CandidateAnalyticsPage() {
     return list;
   }, [activeSubmission, distinctSubs]);
 
-  // 3. Aggregate Section Scores (from active submission topics or module-specific submissions)
+  // 3. Aggregate Section Scores (from active submission topics or all submissions)
   const sectionScores = React.useMemo(() => {
-    const asms = Array.isArray(assessments) ? assessments : [];
+    // Keys are only used as a last-resort topic match when a topic row has no
+    // recognisable category. Category is the source of truth so that a topic
+    // like "Object-Oriented Programming" (Technical) can never be counted as
+    // Coding just because its name contains "prog".
+    const SECTION_KEYS = {
+      technical: ['tech'],
+      aptitude: ['apt', 'quant', 'math'],
+      reasoning: ['reason', 'logic'],
+      coding: ['cod'],
+      verbal: ['verb', 'eng'],
+    };
 
-    let activeTopics = [];
-    if (activeSubmission) {
-      let tb = activeSubmission.topic_breakdown || activeSubmission.topicBreakdown;
+    const sectionForCategory = (rawCat) => {
+      const c = String(rawCat || '').toLowerCase().trim();
+      if (!c) return null;
+      if (c.includes('cod')) return 'coding';
+      if (c.includes('apt') || c.includes('quant') || c.includes('math')) return 'aptitude';
+      if (c.includes('reason') || c.includes('logic')) return 'reasoning';
+      if (c.includes('verb') || c.includes('eng')) return 'verbal';
+      if (c.includes('tech')) return 'technical';
+      return null;
+    };
+
+    const parseTopics = (sub) => {
+      let tb = sub?.topic_breakdown || sub?.topicBreakdown;
       if (typeof tb === 'string') {
         try { tb = JSON.parse(tb); } catch (e) { tb = []; }
       }
-      if (Array.isArray(tb)) activeTopics = tb;
-    }
+      return Array.isArray(tb) ? tb : [];
+    };
 
-    const getScoreForSection = (keys, defaultCatName) => {
-      // When a specific assessment (activeSubmission) is active:
-      // All section scores MUST strictly come from this assessment!
-      if (activeSubmission) {
-        // 1. Check matching topics in active submission's topic breakdown
-        if (activeTopics.length > 0) {
-          const matchingTopics = activeTopics.filter(item => {
-            const cat = String(item.category || '').toLowerCase().trim();
-            const top = String(item.topic || item.name || '').toLowerCase().trim();
-            return keys.some(k => cat.includes(k) || top.includes(k));
-          });
+    // One row per assessment in cumulative mode, otherwise just the selected one.
+    const sources = activeSubmission ? [activeSubmission] : distinctSubs;
+    const allTopics = [];
+    sources.forEach(sub => {
+      parseTopics(sub).forEach(item => allTopics.push(item));
+    });
 
-          if (matchingTopics.length > 0) {
-            const total = matchingTopics.reduce((sum, item) => sum + Number(item.totalMarks ?? item.total_marks ?? 1), 0);
-            let obtained = matchingTopics.reduce((sum, item) => sum + Number(item.obtainedMarks ?? item.obtained_marks ?? item.score ?? 0), 0);
-            if (Number(activeSubmission.obtained_marks ?? activeSubmission.obtainedMarks ?? 0) === 0) {
-              obtained = 0;
-            }
-            const pct = total > 0 ? Math.round((obtained / total) * 100) : 0;
-            return {
-              obtained,
-              total,
-              pct,
-              title: `${defaultCatName} Section`,
-              isSubmitted: true,
-              inCurrentTest: true
-            };
-          }
-        }
-
-        // 2. Check if the activeSubmission itself IS this category
-        const activeCat = String(activeSubmission.category || '').toLowerCase().trim();
-        const activeTitle = String(activeSubmission.assessment_title || activeSubmission.assessmentName || '').toLowerCase().trim();
-        if (keys.some(k => activeCat.includes(k) || activeTitle.includes(k))) {
-          const total = Number(activeSubmission.total_marks ?? activeSubmission.totalMarks ?? (activeSubmission.total_questions || 5));
-          let obtained = Number(activeSubmission.obtained_marks ?? activeSubmission.obtainedMarks ?? 0);
-          if (Number(activeSubmission.obtained_marks ?? activeSubmission.obtainedMarks ?? 0) === 0) {
-            obtained = 0;
-          }
-          const pct = total > 0 ? Math.round((obtained / total) * 100) : Number(activeSubmission.score ?? 0);
-          return {
-            obtained,
-            total,
-            pct,
-            title: activeSubmission.assessment_title || `${defaultCatName} Assessment`,
-            isSubmitted: true,
-            inCurrentTest: true
-          };
-        }
-
-        // 3. Check activeSubmission.category_scores
-        let catScores = activeSubmission.category_scores || activeSubmission.categoryScores;
-        if (typeof catScores === 'string') {
-          try { catScores = JSON.parse(catScores); } catch (e) { catScores = null; }
-        }
-        if (catScores && typeof catScores === 'object') {
-          const matchingKey = Object.keys(catScores).find(ck =>
-            keys.some(k => ck.toLowerCase().includes(k))
-          );
-          if (matchingKey && typeof catScores[matchingKey] === 'number') {
-            const val = catScores[matchingKey];
-            const total = 5;
-            let obtained = Math.round((val / 100) * total);
-            if (Number(activeSubmission.obtained_marks ?? activeSubmission.obtainedMarks ?? 0) === 0) {
-              obtained = 0;
-            }
-            return {
-              obtained,
-              total,
-              pct: val,
-              title: `${defaultCatName} Section`,
-              isSubmitted: true,
-              inCurrentTest: true
-            };
-          }
-        }
-
-        // Section was not tested in this assessment — do NOT leak scores from other exams!
-        return {
-          obtained: 0,
-          total: 0,
-          pct: 0,
-          title: `${defaultCatName} Section`,
-          isSubmitted: false,
-          inCurrentTest: false
-        };
-      }
-
-      // 4. Cumulative mode (activeSubmission is null): search across distinct completed assessments
-      const match = distinctSubs.find(s => {
-        const cat = String(s.category || '').toLowerCase().trim();
-        const title = String(s.assessment_title || s.assessmentName || s.title || '').toLowerCase().trim();
-        if (cat.includes('mix') || title.includes('mix') || title.includes('full')) return false;
-        return keys.some(k => cat.includes(k) || title.includes(k));
+    const aggregate = (sectionKey, defaultCatName) => {
+      const keys = SECTION_KEYS[sectionKey] || [];
+      const matching = allTopics.filter(item => {
+        const cat = String(item.category || '').trim();
+        const top = String(item.topic || item.name || '').trim();
+        const byCategory = sectionForCategory(cat);
+        if (byCategory) return byCategory === sectionKey;
+        // Unknown category: fall back to the topic name.
+        const tl = top.toLowerCase();
+        return keys.some(k => tl.includes(k));
       });
 
-      if (match) {
-        const total = Number(match.total_marks ?? match.totalMarks ?? (match.total_questions || 5));
-        const obtained = Number(match.obtained_marks ?? match.obtainedMarks ?? (typeof match.score === 'number' ? Math.round((match.score / 100) * total) : 0));
-        const pct = total > 0 ? Math.round((obtained / total) * 100) : (typeof match.score === 'number' ? match.score : 0);
+      if (matching.length > 0) {
+        // Uniform marking: every question is worth exactly 1 mark, so the
+        // section total is simply the number of questions in that section.
+        let total = 0;
+        let correct = 0;
+        let unanswered = 0;
+        matching.forEach(item => {
+          const totalQ = Math.max(0, Number(item.totalQuestions ?? 1));
+          const ratio = Number(item.totalMarks) > 0
+            ? Number(item.obtainedMarks ?? 0) / Number(item.totalMarks)
+            : 0;
+          const correctQ = item.correctCount !== undefined && item.correctCount !== null
+            ? Number(item.correctCount)
+            : Math.round(ratio * totalQ);
+          total += totalQ;
+          correct += Math.max(0, Math.min(totalQ, correctQ || 0));
+          unanswered += Math.max(0, Number(item.unansweredCount ?? 0));
+        });
+        const obtained = Math.min(correct, total);
+        const pct = total > 0 ? Math.round((obtained / total) * 100) : 0;
         return {
           obtained,
           total,
           pct,
-          title: match.assessment_title || match.assessmentName || match.title || `${defaultCatName} Assessment`,
-          isSubmitted: true,
-          inCurrentTest: false
+          correct: obtained,
+          incorrect: Math.max(0, total - obtained - unanswered),
+          unanswered,
+          title: `${defaultCatName} Section`,
+          isSubmitted: total > 0,
+          inCurrentTest: Boolean(activeSubmission),
         };
       }
 
-      // 5. Check assessments array state for completed status
-      const asmMatch = asms.find(a => {
-        const cat = String(a.category || '').toLowerCase().trim();
-        const title = String(a.title || '').toLowerCase().trim();
-        if (cat.includes('mix') || title.includes('mix') || title.includes('full')) return false;
-        return (a.status === 'Completed' || a.progress >= 100) && keys.some(k => cat.includes(k) || title.includes(k));
-      });
-
-      if (asmMatch) {
-        const pct = Number(asmMatch.lastScore ?? asmMatch.score ?? 0);
-        const total = Number(asmMatch.total_marks ?? asmMatch.totalMarks ?? (asmMatch.totalQuestions || 5));
-        const obtained = Math.round((pct / 100) * total);
-        return { obtained, total, pct, title: asmMatch.title || `${defaultCatName} Assessment`, isSubmitted: true, inCurrentTest: false };
-      }
-
-      // 5. Check fallback from candidate profile
-      for (const k of keys) {
-        const scoreVal = currentUser?.[`${k}Score`] ?? currentUser?.[`${k}_score`];
-        if (typeof scoreVal === 'number' && scoreVal > 0) {
-          return { obtained: Math.round((scoreVal / 100) * 5), total: 5, pct: scoreVal, title: `${defaultCatName} Assessment`, isSubmitted: true, inCurrentTest: false };
-        }
-      }
-
-      return { obtained: 0, total: 0, pct: 0, title: `${defaultCatName} Assessment`, isSubmitted: false, inCurrentTest: false };
+      // No topic-level data for this section: do not leak scores from other
+      // assessments, just report it as not attempted.
+      return {
+        obtained: 0,
+        total: 0,
+        pct: 0,
+        correct: 0,
+        incorrect: 0,
+        unanswered: 0,
+        title: `${defaultCatName} Section`,
+        isSubmitted: false,
+        inCurrentTest: false,
+      };
     };
 
     return {
-      technical: getScoreForSection(['tech'], 'Technical'),
-      aptitude: getScoreForSection(['apt', 'quant'], 'Aptitude'),
-      reasoning: getScoreForSection(['reason', 'logic'], 'Reasoning'),
-      coding: getScoreForSection(['cod', 'prog'], 'Coding'),
-      verbal: getScoreForSection(['verb', 'eng'], 'Verbal')
+      technical: aggregate('technical', 'Technical'),
+      aptitude: aggregate('aptitude', 'Aptitude'),
+      reasoning: aggregate('reasoning', 'Reasoning'),
+      coding: aggregate('coding', 'Coding'),
+      verbal: aggregate('verbal', 'Verbal'),
     };
-  }, [distinctSubs, assessments, currentUser, activeSubmission]);
+  }, [distinctSubs, activeSubmission]);
 
   // 4. Compute accurate display metrics (total score, accuracy, questions)
   const displayResultMetrics = React.useMemo(() => {
@@ -390,9 +342,9 @@ export default function CandidateAnalyticsPage() {
         obtainedMarks: secScore.obtained,
         totalMarks: secScore.total,
         accuracy: secScore.isSubmitted ? secScore.pct : 0,
-        correctCount: secScore.isSubmitted ? secScore.obtained : 0,
-        incorrectCount: Math.max(0, secScore.total - secScore.obtained),
-        unansweredCount: 0,
+        correctCount: secScore.isSubmitted ? (secScore.correct ?? secScore.obtained) : 0,
+        incorrectCount: secScore.isSubmitted ? (secScore.incorrect ?? Math.max(0, secScore.total - secScore.obtained)) : 0,
+        unansweredCount: secScore.isSubmitted ? (secScore.unanswered || 0) : 0,
         totalQuestions: secScore.total || 0,
         timeTaken: '10 min',
         isFiltered: true,
@@ -642,7 +594,6 @@ export default function CandidateAnalyticsPage() {
                 className="px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-bold shadow-md shadow-brand-500/20 transition-all inline-flex items-center gap-2"
               >
                 <span>Browse & Take Assessments</span>
-                <Sparkles className="w-4 h-4" />
               </button>
             </div>
           </section>
@@ -747,8 +698,8 @@ export default function CandidateAnalyticsPage() {
               </div>
             </div>
 
-            {/* Quick Metrics (4 Cards) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Quick Metrics (5 Cards) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               {/* Total Score & Marks */}
               <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-center gap-4">
                 <div className="w-12 h-12 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0">
@@ -804,7 +755,19 @@ export default function CandidateAnalyticsPage() {
                 <div>
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Incorrect</span>
                   <span className="text-2xl font-black text-rose-600">{displayResultMetrics.incorrectCount} Qs</span>
-                  {/* <span className="block text-[11px] text-slate-400 font-medium">{displayResultMetrics.unansweredCount || 0} unanswered</span> */}
+                  <span className="block text-[11px] text-slate-400 font-medium">Wrong answers</span>
+                </div>
+              </div>
+
+              {/* Unanswered */}
+              <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center flex-shrink-0">
+                  <MinusCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Unanswered</span>
+                  <span className="text-2xl font-black text-slate-600">{displayResultMetrics.unansweredCount} Qs</span>
+                  <span className="block text-[11px] text-slate-400 font-medium">Not attempted</span>
                 </div>
               </div>
             </div>
