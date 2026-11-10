@@ -53,6 +53,9 @@ export const AdminCandidatesPage = () => {
   const [selectedBranch, setSelectedBranch] = useState('All');
   const [scoreMin, setScoreMin] = useState('');
   const [scoreMax, setScoreMax] = useState('');
+  const [sortBy, setSortBy] = useState('default');
+  const [sortDirection, setSortDirection] = useState('desc');
+  const [performanceGroup, setPerformanceGroup] = useState('All');
   const [viewCandidate, setViewCandidate] = useState(null);
   const [reportCandidate, setReportCandidate] = useState(null);
   const [candidateProctoringEvents, setCandidateProctoringEvents] = useState([]);
@@ -182,6 +185,30 @@ export const AdminCandidatesPage = () => {
     return [];
   }, [candidatesList]);
 
+  // Scores used for sorting and for the combined performance groups.
+  // High/low split is 60% for both the exam and the AI mock interview.
+  const HIGH_THRESHOLD = 60;
+  const examScoreOf = (c) => Number(c?.overallScore ?? c?.jobReadinessScore ?? c?.job_readiness_score ?? 0);
+  const interviewScoreOf = (c) => {
+    const intv = getCandidateInterview(c);
+    return Number(intv?.overallScore ?? c?.interviewScore ?? c?.interview_score ?? 0);
+  };
+  const hasInterviewResult = (c) => {
+    const intv = getCandidateInterview(c);
+    return Boolean(intv) && Number(intv.overallScore ?? c?.interviewScore ?? c?.interview_score ?? 0) > 0;
+  };
+  const performanceGroupOf = (c) => {
+    const exam = examScoreOf(c);
+    const interview = interviewScoreOf(c);
+    if (!hasInterviewResult(c)) return 'No interview';
+    const examHigh = exam >= HIGH_THRESHOLD;
+    const interviewHigh = interview >= HIGH_THRESHOLD;
+    if (examHigh && interviewHigh) return 'Strong';
+    if (examHigh && !interviewHigh) return 'Exam strong, interview weak';
+    if (!examHigh && interviewHigh) return 'Interview strong, exam weak';
+    return 'Weak in both';
+  };
+
   const filteredCandidates = useMemo(() => {
     return safeCandidatesList.filter(c => {
       const interview = getCandidateInterview(c);
@@ -213,16 +240,42 @@ export const AdminCandidatesPage = () => {
       const maxScore = scoreMax ? Number(scoreMax) : Infinity;
       const matchScore = candScore >= minScore && candScore <= maxScore;
 
-      return matchSearch && matchCollege && matchBranch && matchYear && matchStatus && matchReadiness && matchScore;
+      const matchGroup = performanceGroup === 'All' || performanceGroupOf(c) === performanceGroup;
+
+      return matchSearch && matchCollege && matchBranch && matchYear && matchStatus && matchReadiness && matchScore && matchGroup;
     });
-  }, [safeCandidatesList, searchQuery, selectedCollege, selectedBranch, selectedYear, selectedStatus, selectedReadiness, scoreMin, scoreMax, allInterviewSessions]);
+  }, [safeCandidatesList, searchQuery, selectedCollege, selectedBranch, selectedYear, selectedStatus, selectedReadiness, scoreMin, scoreMax, performanceGroup, allInterviewSessions]);
+
+  // Apply the selected ordering. 'default' keeps the API order.
+  const sortedCandidates = useMemo(() => {
+    if (sortBy === 'default') return filteredCandidates;
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    const list = [...filteredCandidates];
+    list.sort((a, b) => {
+      switch (sortBy) {
+        case 'name':
+          return dir * String(a.name || a.fullName || '').localeCompare(String(b.name || b.fullName || ''));
+        case 'college':
+          return dir * String(a.college || a.collegeName || '').localeCompare(String(b.college || b.collegeName || ''));
+        case 'exam':
+          return dir * (examScoreOf(a) - examScoreOf(b));
+        case 'interview':
+          return dir * (interviewScoreOf(a) - interviewScoreOf(b));
+        case 'combined':
+          return dir * (((examScoreOf(a) + interviewScoreOf(a)) / 2) - ((examScoreOf(b) + interviewScoreOf(b)) / 2));
+        default:
+          return 0;
+      }
+    });
+    return list;
+  }, [filteredCandidates, sortBy, sortDirection, allInterviewSessions]);
 
   const handleSortChange = (key) => {
     if (sortBy === key) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortBy(key);
-      setSortDirection('asc');
+      setSortDirection(key === 'name' || key === 'college' ? 'asc' : 'desc');
     }
   };
 
@@ -234,13 +287,13 @@ export const AdminCandidatesPage = () => {
   };
 
   const handleDownloadCSV = () => {
-    if (!filteredCandidates || filteredCandidates.length === 0) {
+    if (!sortedCandidates || sortedCandidates.length === 0) {
       addToast('No candidate records available to export.', 'warning');
       return;
     }
 
-    const headers = ['Candidate ID', 'Name', 'Email', 'Mobile', 'College', 'Branch', 'Specialization', 'City', 'State', 'Country', 'Graduation Year', 'Experience Level', 'Exam Score (%)', 'AI Interview Score (%)', 'Interview Role', 'Status'];
-    const rows = filteredCandidates.map(c => {
+    const headers = ['Candidate ID', 'Name', 'Email', 'Mobile', 'College', 'Branch', 'Specialization', 'City', 'State', 'Country', 'Graduation Year', 'Experience Level', 'Exam Score (%)', 'AI Interview Score (%)', 'Performance Group', 'Interview Role', 'Status'];
+    const rows = sortedCandidates.map(c => {
       const intv = getCandidateInterview(c);
       return [
         `"${c.id || ''}"`,
@@ -255,8 +308,9 @@ export const AdminCandidatesPage = () => {
         `"${c.country || 'India'}"`,
         `"${c.graduationYear || c.graduation_year || ''}"`,
         `"${c.experienceLevel || c.experience_level || ''}"`,
-        `"${c.overallScore ?? c.jobReadinessScore ?? c.job_readiness_score ?? 0}"`,
+        `"${examScoreOf(c)}"`,
         `"${intv ? (intv.overallScore ?? 0) : 'N/A'}"`,
+        `"${performanceGroupOf(c)}"`,
         `"${intv ? (intv.targetRole || 'Not specified') : 'N/A'}"`,
         `"${c.assessmentStatus || c.status || ''}"`
       ];
@@ -271,7 +325,7 @@ export const AdminCandidatesPage = () => {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    addToast(`Exported ${filteredCandidates.length} candidate record(s) to CSV.`, 'success');
+    addToast(`Exported ${sortedCandidates.length} candidate record(s) to CSV.`, 'success');
   };
 
   const uniqueColleges = Array.from(new Set(safeCandidatesList.map(c => c.college || c.collegeName).filter(Boolean)));
@@ -385,7 +439,53 @@ export const AdminCandidatesPage = () => {
               ))}
             </select>
           </div>
+        </div>
 
+        {/* Grouping & ordering toolbar */}
+        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Group</span>
+          <select
+            value={performanceGroup}
+            onChange={(e) => setPerformanceGroup(e.target.value)}
+            className="px-3 py-2 bg-slate-50 text-xs rounded-xl border border-slate-200 outline-none text-slate-700 font-medium"
+            title="Group by combined exam and AI interview performance (high = 60% or more)"
+          >
+            <option value="All">All performance groups</option>
+            <option value="Strong">Strong — exam ≥60 &amp; interview ≥60</option>
+            <option value="Exam strong, interview weak">Exam ≥60, interview &lt;60</option>
+            <option value="Interview strong, exam weak">Interview ≥60, exam &lt;60</option>
+            <option value="Weak in both">Both &lt;60</option>
+            <option value="No interview">Interview not attempted</option>
+          </select>
+
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 ml-2">Sort</span>
+          <select
+            value={sortBy}
+            onChange={(e) => {
+              const key = e.target.value;
+              setSortBy(key);
+              setSortDirection(key === 'name' || key === 'college' ? 'asc' : 'desc');
+            }}
+            className="px-3 py-2 bg-slate-50 text-xs rounded-xl border border-slate-200 outline-none text-slate-700 font-medium"
+          >
+            <option value="default">Default order</option>
+            <option value="exam">Exam score</option>
+            <option value="interview">AI interview score</option>
+            <option value="combined">Combined score (average)</option>
+            <option value="name">Name</option>
+            <option value="college">College</option>
+          </select>
+          <button
+            onClick={() => setSortDirection(d => (d === 'asc' ? 'desc' : 'asc'))}
+            className="px-3 py-2 bg-slate-50 hover:bg-slate-100 text-xs rounded-xl border border-slate-200 text-slate-700 font-bold transition-colors"
+            title="Toggle ascending / descending"
+          >
+            {sortDirection === 'asc' ? '↑ Ascending' : '↓ Descending'}
+          </button>
+
+          <span className="ml-auto text-[11px] text-slate-500 font-medium">
+            {sortedCandidates.length} of {safeCandidatesList.length} candidates
+          </span>
         </div>
       </div>
 
@@ -395,20 +495,36 @@ export const AdminCandidatesPage = () => {
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                <th className="py-3.5 px-4">Name & Email</th>
+                <th className="py-3.5 px-4">
+                  <button type="button" onClick={() => handleSortChange('name')} className="inline-flex items-center hover:text-slate-700" title="Sort by name">
+                    Name &amp; Email {sortIndicator('name')}
+                  </button>
+                </th>
                 <th className="py-3.5 px-4">Mobile</th>
-                <th className="py-3.5 px-4">College</th>
+                <th className="py-3.5 px-4">
+                  <button type="button" onClick={() => handleSortChange('college')} className="inline-flex items-center hover:text-slate-700" title="Sort by college">
+                    College {sortIndicator('college')}
+                  </button>
+                </th>
                 <th className="py-3.5 px-4">Branch & Specialization</th>
                 <th className="py-3.5 px-4">Location</th>
                 <th className="py-3.5 px-4">Grad Year & Exp</th>
-                <th className="py-3.5 px-4">Exam Score</th>
-                <th className="py-3.5 px-4">AI Mock Interview</th>
+                <th className="py-3.5 px-4">
+                  <button type="button" onClick={() => handleSortChange('exam')} className="inline-flex items-center hover:text-slate-700" title="Sort by exam score">
+                    Exam Score {sortIndicator('exam')}
+                  </button>
+                </th>
+                <th className="py-3.5 px-4">
+                  <button type="button" onClick={() => handleSortChange('interview')} className="inline-flex items-center hover:text-slate-700" title="Sort by AI mock interview score">
+                    AI Mock Interview {sortIndicator('interview')}
+                  </button>
+                </th>
                 <th className="py-3.5 px-4">Status</th>
                 <th className="py-3.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-              {filteredCandidates.map((cand) => (
+              {sortedCandidates.map((cand) => (
                 <tr
                   key={cand.id}
                   onClick={() => setViewCandidate(cand)}
@@ -443,19 +559,29 @@ export const AdminCandidatesPage = () => {
                   <td className="py-3.5 px-4">
                     {(() => {
                       const intv = getCandidateInterview(cand);
-                      return intv ? (
+                      const group = performanceGroupOf(cand);
+                      const groupStyle = {
+                        'Strong': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                        'Exam strong, interview weak': 'bg-amber-50 text-amber-700 border-amber-200',
+                        'Interview strong, exam weak': 'bg-blue-50 text-blue-700 border-blue-200',
+                        'Weak in both': 'bg-rose-50 text-rose-700 border-rose-200',
+                        'No interview': 'bg-slate-100 text-slate-500 border-slate-200'
+                      }[group] || 'bg-slate-100 text-slate-500 border-slate-200';
+                      return (
                         <div>
-                          <span className="font-black text-purple-600 text-sm">
-                            {intv.overallScore ?? 0}%
-                          </span>
-                          <span className="text-[10px] text-slate-500 block font-mono">
-                            {intv.targetRole || 'Not specified'}
+                          {intv ? (
+                            <span className="font-black text-purple-600 text-sm">
+                              {intv.overallScore ?? 0}%
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 font-semibold bg-slate-100 px-2 py-0.5 rounded">
+                              Not Taken
+                            </span>
+                          )}
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border inline-block mt-1 ${groupStyle}`}>
+                            {group}
                           </span>
                         </div>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 font-semibold bg-slate-100 px-2 py-0.5 rounded">
-                          Not Taken
-                        </span>
                       );
                     })()}
                   </td>
