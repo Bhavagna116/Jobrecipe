@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import '../../utils/monacoSetup';
 import Editor from '@monaco-editor/react';
+import MarkdownText, { stripMarkdown } from '../common/MarkdownText';
 import {
   Play,
   RotateCcw,
@@ -239,6 +240,22 @@ export const CodingWorkspace = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [autoSavePulse, setAutoSavePulse] = useState(false);
   const [availableLanguages, setAvailableLanguages] = useState([]);
+
+  // The question bank stores statements as Markdown. Split the first heading
+  // out as the panel title and render the rest as formatted Markdown.
+  const { problemTitle, problemBody } = useMemo(() => {
+    const raw = String(question?.question || '').replace(/\r\n?/g, '\n');
+    const lines = raw.split('\n');
+    const firstIdx = lines.findIndex(line => line.trim());
+    const first = firstIdx >= 0 ? lines[firstIdx] : '';
+    const headingMatch = first.match(/^\s*(#{1,6})\s+(.+)$/);
+    const title = headingMatch
+      ? stripMarkdown(headingMatch[2])
+      : (stripMarkdown(first) || 'Coding Challenge');
+    const bodyLines = [...lines];
+    if (headingMatch && firstIdx >= 0) bodyLines.splice(firstIdx, 1);
+    return { problemTitle: title, problemBody: bodyLines.join('\n') };
+  }, [question?.question]);
 
   // Fetch supported languages dynamically from backend remote executor
   useEffect(() => {
@@ -690,7 +707,7 @@ export const CodingWorkspace = ({
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="font-bold text-zinc-200 text-sm tracking-tight flex items-center gap-1.5">
               <Code2 className="w-4 h-4 text-emerald-400" />
-              <span>{question?.question ? question.question.split('\n')[0].slice(0, 48) : 'Coding Challenge'}</span>
+              <span>{problemTitle ? problemTitle.slice(0, 48) : 'Coding Challenge'}</span>
             </span>
           </div>
 
@@ -819,7 +836,7 @@ export const CodingWorkspace = ({
               {/* Problem Title & Meta Header */}
               <div className="space-y-2">
                 <h1 className="text-lg sm:text-xl font-extrabold text-zinc-100 tracking-tight">
-                  {question?.question ? question.question.split('\n')[0] : 'Coding Challenge'}
+                  {problemTitle}
                 </h1>
 
                 <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -836,8 +853,8 @@ export const CodingWorkspace = ({
               </div>
 
               {/* Problem Statement Details */}
-              <div className="space-y-3 whitespace-pre-line text-zinc-200 leading-relaxed font-sans">
-                {question?.question}
+              <div className="space-y-3 text-zinc-200 leading-relaxed font-sans">
+                <MarkdownText text={problemBody} dark />
               </div>
 
               {/* LeetCode Formatted Examples */}

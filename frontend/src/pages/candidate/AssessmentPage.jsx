@@ -5,6 +5,7 @@ import { INITIAL_QUESTION_BANK } from '../../data/mockData';
 import { Modal } from '../../components/common/Modal';
 import { MediaPreviewWidget } from '../../components/candidate/MediaPreviewWidget';
 import { CodingWorkspace } from '../../components/candidate/CodingWorkspace';
+import MarkdownText from '../../components/common/MarkdownText';
 // NOTE: Camera face-presence proctoring is temporarily disabled for this build.
 /*
 import {
@@ -1373,9 +1374,9 @@ export const AssessmentPage = () => {
 
                   {/* Question Text */}
                   <div className="space-y-4">
-                    <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-relaxed">
-                      {currentQuestion?.question || currentQuestion?.text || currentQuestion?.title}
-                    </h2>
+                    <div className="text-base sm:text-lg font-bold text-slate-900 leading-relaxed">
+                      <MarkdownText text={currentQuestion?.question || currentQuestion?.text || currentQuestion?.title} />
+                    </div>
 
                     {/* Code Snippet if applicable */}
                     {currentQuestion?.codeSnippet && (
