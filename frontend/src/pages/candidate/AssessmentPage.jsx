@@ -84,8 +84,16 @@ export const AssessmentPage = () => {
   } = useApp();
 
   const [showSubmitModal, setShowSubmitModal] = useState(false);
-  const [showFullscreenWarning, setShowFullscreenWarning] = useState(false);
   const [showEnterFullscreenModal, setShowEnterFullscreenModal] = useState(false);
+  // Unified navigation/fullscreen proctoring warning (strikes, distinct reasons)
+  const [navWarning, setNavWarning] = useState({
+    isOpen: false,
+    strike: 0,
+    kind: '',
+    title: '',
+    message: '',
+    isFinal: false,
+  });
   const [copiedCode, setCopiedCode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
@@ -128,7 +136,8 @@ export const AssessmentPage = () => {
   const detectionIntervalRef = useRef(null);
   const attemptIdRef = useRef(`att-${activeAssessment?.id || 'asm'}-${currentUser?.id || 'cand'}-${Date.now()}`);
 
-  const fullscreenExitCountRef = useRef(0);
+  const navStrikeCountRef = useRef(0);
+  const lastNavViolationAtRef = useRef(0);
   const isSubmittedRef = useRef(false);
   const timerRef = useRef(null);
   const hasRedirectedRef = useRef(false);
@@ -244,7 +253,6 @@ export const AssessmentPage = () => {
       elem.msRequestFullscreen();
     }
     setShowEnterFullscreenModal(false);
-    setShowFullscreenWarning(false);
   };
 
   const exitExamFullscreenAndStopMedia = () => {
@@ -799,9 +807,14 @@ export const AssessmentPage = () => {
   }, [cameraReady, mediaStream, isPausedForWarning, isSubmitting]);
   */
 
-  // Fullscreen, Keydown & Tab Switch Violation Listeners (exam phase only)
+  // Fullscreen, focus, tab-switch and shortcut proctoring (exam phase only).
+  // Each event type gets its own message, one physical action only counts once,
+  // and the exam auto-submits only after 3 separate violations.
   useEffect(() => {
     if (phase !== 'exam') return;
+
+    const NAV_MAX_STRIKES = 3;
+    const NAV_COOLDOWN_MS = 2500;
 
     requestExamFullscreen();
 
@@ -811,6 +824,40 @@ export const AssessmentPage = () => {
       }
     }, 400);
 
+    const logViolation = (kind, title, message) => {
+      if (isSubmittedRef.current || totalQuestions <= 0 || loadingQuestions) return;
+
+      // A single physical action (e.g. Escape) can fire several browser events
+      // (keydown + fullscreenchange + blur). Collapse them into one strike.
+      const now = Date.now();
+      if (now - lastNavViolationAtRef.current < NAV_COOLDOWN_MS) return;
+      lastNavViolationAtRef.current = now;
+
+      navStrikeCountRef.current += 1;
+      const strike = navStrikeCountRef.current;
+      const isFinal = strike >= NAV_MAX_STRIKES;
+
+      setViolationCount(prev => Math.max(prev, strike));
+      setIsPausedForWarning(true);
+
+      api.submissions.logProctoringEvent({
+        attemptId: attemptIdRef.current,
+        candidateId: currentUser?.id,
+        assessmentId: activeAssessment?.id,
+        type: kind,
+        timestamp: new Date().toISOString(),
+        details: { title, message, strikeNumber: strike }
+      }).catch(e => console.warn('Failed to log proctoring event:', e));
+
+      setNavWarning({ isOpen: true, strike, kind, title, message, isFinal });
+
+      if (isFinal) {
+        setTimeout(() => {
+          autoSubmitHandlerRef.current?.('proctoring_violations');
+        }, 2000);
+      }
+    };
+
     const handleFullscreenChange = () => {
       const isFS = Boolean(
         document.fullscreenElement ||
@@ -818,39 +865,62 @@ export const AssessmentPage = () => {
         document.mozFullScreenElement ||
         document.msFullscreenElement
       );
-
-      if (!isFS && !isSubmittedRef.current && !showEnterFullscreenModal && totalQuestions > 0 && !loadingQuestions) {
-        if (fullscreenExitCountRef.current === 0) {
-          fullscreenExitCountRef.current = 1;
-          setShowFullscreenWarning(true);
-          if (addToast) addToast('Warning: Fullscreen mode exited! Exiting once more will auto-submit your exam.', 'warning');
-        } else {
-          if (addToast) addToast('Exam Auto-Submitted due to repeated fullscreen exit violation!', 'error');
-          autoSubmitHandlerRef.current?.('fullscreen_violation');
-        }
+      if (!isFS && !isSubmittedRef.current) {
+        logViolation(
+          'FULLSCREEN_EXIT',
+          'Fullscreen mode exited',
+          'You left fullscreen mode during an active assessment. Re-enter fullscreen to continue.'
+        );
       }
     };
 
     const handleVisibilityChange = () => {
-      if ((document.hidden || document.visibilityState === 'hidden') && !isSubmittedRef.current && totalQuestions > 0 && !loadingQuestions) {
-        if (addToast) addToast('Exam Auto-Submitted due to tab switching violation!', 'error');
-        autoSubmitHandlerRef.current?.('tab_switch_violation');
+      if ((document.hidden || document.visibilityState === 'hidden') && !isSubmittedRef.current) {
+        logViolation(
+          'TAB_SWITCH',
+          'You navigated away from the exam',
+          'The exam tab or window was hidden (tab switch, minimise, or another window opened). Keep the exam window open and focused.'
+        );
+      }
+    };
+
+    const handleWindowBlur = () => {
+      if (!isSubmittedRef.current) {
+        logViolation(
+          'WINDOW_BLUR',
+          'Exam window lost focus',
+          'The exam window lost focus because another window or application was opened.'
+        );
       }
     };
 
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' || e.code === 'Escape') {
-        if (!isSubmittedRef.current && totalQuestions > 0 && !loadingQuestions) {
-          if (fullscreenExitCountRef.current === 0) {
-            fullscreenExitCountRef.current = 1;
-            setShowFullscreenWarning(true);
-            if (addToast) addToast('Warning: Escape pressed / Fullscreen exit detected! Exiting once more will auto-submit your exam.', 'warning');
-          } else {
-            if (addToast) addToast('Exam Auto-Submitted due to Escape key violation!', 'error');
-            autoSubmitHandlerRef.current?.('fullscreen_violation');
-          }
-        }
+        logViolation(
+          'ESCAPE_KEY',
+          'Escape key pressed',
+          'You pressed Escape, which exits fullscreen or closes dialogs during the exam.'
+        );
+      } else if (e.key === 'F11' || e.code === 'F11') {
+        e.preventDefault();
+        logViolation(
+          'F11_KEY',
+          'F11 pressed',
+          'You tried to toggle fullscreen with F11. Please keep the exam in fullscreen.'
+        );
+      } else if (e.key === 'Meta' || e.code === 'MetaLeft' || e.code === 'MetaRight') {
+        logViolation(
+          'WINDOW_KEY',
+          'Windows / Command key pressed',
+          'You pressed the Windows/Command key, which can switch to other apps. Keep the exam focused.'
+        );
       }
+    };
+
+    // Cursor leaving the window is advisory only: warn, never auto-submit.
+    const handleMouseOut = (e) => {
+      if (e.relatedTarget) return;
+      if (addToast) addToast('Your cursor left the exam window. Please keep it inside the exam.', 'warning');
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -858,7 +928,9 @@ export const AssessmentPage = () => {
     document.addEventListener('mozfullscreenchange', handleFullscreenChange);
     document.addEventListener('MSFullscreenChange', handleFullscreenChange);
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
     window.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mouseout', handleMouseOut);
 
     return () => {
       clearTimeout(checkTimer);
@@ -867,7 +939,9 @@ export const AssessmentPage = () => {
       document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
       document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mouseout', handleMouseOut);
     };
   }, [phase]);
 
@@ -1755,36 +1829,53 @@ export const AssessmentPage = () => {
         </div>
       </Modal>
 
-      {/* FULLSCREEN EXIT WARNING MODAL (1ST VIOLATION) */}
+      {/* NAVIGATION / FULLSCREEN PROCTORING WARNING */}
       <Modal
-        isOpen={showFullscreenWarning}
+        isOpen={navWarning.isOpen}
         onClose={() => { }}
-        title="WARNING: Fullscreen Mode Exited!"
-        subtitle="First proctoring violation warning"
+        title={navWarning.isFinal
+          ? 'Exam Auto-Submitted: Maximum Violations Reached'
+          : `Proctoring Warning: Strike ${navWarning.strike} of 3`}
+        subtitle={navWarning.isFinal ? 'Assessment terminated after repeated violations' : navWarning.title}
       >
         <div className="space-y-4 text-xs text-slate-600 leading-relaxed">
-          <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3">
-            <AlertCircle className="w-6 h-6 text-rose-600 flex-shrink-0 mt-0.5 animate-bounce" />
+          <div className={`p-4 rounded-2xl flex items-start gap-3 ${navWarning.isFinal ? 'bg-rose-50 border border-rose-300' : 'bg-amber-50 border border-amber-300'}`}>
+            <AlertCircle className={`w-6 h-6 flex-shrink-0 mt-0.5 ${navWarning.isFinal ? 'text-rose-600 animate-bounce' : 'text-amber-600'}`} />
             <div>
-              <h4 className="font-bold text-rose-900 text-sm">Proctoring Violation Warning!</h4>
-              <p className="text-rose-700 mt-1 font-medium">
-                You exited full-screen mode during an active assessment.
+              <h4 className={`font-bold text-sm ${navWarning.isFinal ? 'text-rose-950' : 'text-amber-950'}`}>
+                {navWarning.title}
+              </h4>
+              <p className={`mt-1 font-medium ${navWarning.isFinal ? 'text-rose-800' : 'text-amber-800'}`}>
+                {navWarning.message}
               </p>
-              <div className="mt-3 p-3 bg-white/80 border border-rose-200 rounded-xl font-bold text-rose-800">
-                CRITICAL: Exiting full screen one more time will immediately auto-submit your test and grade your current answers!
-              </div>
+              {!navWarning.isFinal && (
+                <div className="mt-3 p-3 bg-white/80 border border-amber-200 rounded-xl text-[11px] font-semibold text-amber-900">
+                  This is strike {navWarning.strike} of 3. After 3 separate violations the assessment will be auto-submitted.
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="flex justify-end pt-2">
-            <button
-              onClick={requestExamFullscreen}
-              className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-600/20 transition-all flex items-center justify-center gap-2"
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>Re-Enter Full Screen & Resume Exam</span>
-            </button>
-          </div>
+          {navWarning.isFinal ? (
+            <div className="py-2 flex items-center justify-center gap-2 text-xs font-bold text-slate-500">
+              <RefreshCw className="w-4 h-4 animate-spin text-brand-600" />
+              <span>Submitting assessment and redirecting...</span>
+            </div>
+          ) : (
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => {
+                  setNavWarning(prev => ({ ...prev, isOpen: false }));
+                  setIsPausedForWarning(false);
+                  requestExamFullscreen();
+                }}
+                className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-md shadow-brand-600/20 transition-all flex items-center justify-center gap-2"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Re-Enter Full Screen & Resume Exam</span>
+              </button>
+            </div>
+          )}
         </div>
       </Modal>
 
