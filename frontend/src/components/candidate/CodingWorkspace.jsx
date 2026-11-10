@@ -699,7 +699,7 @@ export const CodingWorkspace = ({
           </span>
 
           <span className="text-zinc-400 font-medium text-[11px] hidden sm:inline">
-            {question?.marks || 10} Marks
+            1 Mark
           </span>
         </div>
 
@@ -1285,7 +1285,7 @@ export const CodingWorkspace = ({
                           <span>Runtime: <strong className="text-zinc-200">{runResults.evaluation.testResults?.[0]?.timeMs || 52} ms</strong></span>
                           {runResults.isOfficialSubmission && (
                             <span className="text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                              Score: {runResults.evaluation.score}% ({runResults.earnedMarks}/{runResults.maxMarks} Marks)
+                              Score: {runResults.evaluation.score}% ({runResults.earnedMarks}/{runResults.maxMarks} Mark{Number(runResults.maxMarks) === 1 ? '' : 's'})
                             </span>
                           )}
                         </div>

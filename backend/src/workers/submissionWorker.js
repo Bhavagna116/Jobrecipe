@@ -54,10 +54,11 @@ export const processSubmission = async (jobData, updateProgress = async () => {}
   }
 
   let testCases = [];
-  let marksPerQuestion = 10;
+  // Uniform marking: every question, including coding, is worth exactly 1 mark.
+  let marksPerQuestion = 1;
 
   if (question) {
-    marksPerQuestion = Number(question.marks) > 0 ? Number(question.marks) : 10;
+    marksPerQuestion = 1;
     if (Array.isArray(question.test_cases)) {
       testCases = question.test_cases;
     } else if (typeof question.test_cases === 'string') {
@@ -104,7 +105,8 @@ export const processSubmission = async (jobData, updateProgress = async () => {}
   });
 
   const marks = marksPerQuestion;
-  const earnedMarks = Math.round((evaluation.score / 100) * marks);
+  // All-or-nothing: full mark when at least 60% of test cases pass, else 0.
+  const earnedMarks = evaluation.score >= 60 ? marks : 0;
 
   const sampleTests = evaluation.testResults.filter(t => !t.isHidden);
   const hiddenTests = evaluation.testResults.filter(t => t.isHidden);

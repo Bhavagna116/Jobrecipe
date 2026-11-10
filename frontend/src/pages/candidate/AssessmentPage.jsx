@@ -189,7 +189,8 @@ export const AssessmentPage = () => {
               category: q.category || activeAssessment.category,
               topic: q.topic || 'General',
               difficulty: q.difficulty || activeAssessment.difficulty || 'Medium',
-              marks: Number(q.marks) > 0 ? Number(q.marks) : 4,
+              // Uniform marking: every question is worth exactly 1 mark.
+              marks: 1,
               options: typeof q.options === 'string' ? JSON.parse(q.options) : (q.options || []),
               test_cases: typeof q.test_cases === 'string' ? JSON.parse(q.test_cases) : (q.test_cases || []),
               starter_templates: typeof q.starter_templates === 'string' ? JSON.parse(q.starter_templates) : (q.starter_templates || null),
@@ -1355,7 +1356,7 @@ export const AssessmentPage = () => {
                       <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                         {currentQuestion?.type || 'Single Choice'}
                       </span>
-                      <span className="text-xs text-slate-400">• {currentQuestion?.marks || 4} Marks</span>
+                      <span className="text-xs text-slate-400">• 1 Mark</span>
                     </div>
 
                     <button
