@@ -490,15 +490,25 @@ export const resetCandidateAttempt = async (req, res) => {
     // 1b. Delete any in-progress / completed test attempts so the candidate
     // can actually retake the assessment.
     let deletedAttempts = 0;
-    if (assessmentId && targetIds.length > 0) {
-      const delTa = await client.query(
-        `DELETE FROM test_attempts
-         WHERE assessment_id = $1::varchar
-           AND candidate_id = ANY($2::varchar[])
-         RETURNING id`,
-        [assessmentId, targetIds]
-      );
-      deletedAttempts += delTa.rowCount || 0;
+    if (targetIds.length > 0) {
+      if (assessmentId && assessmentId !== 'all') {
+        const delTa = await client.query(
+          `DELETE FROM test_attempts
+           WHERE assessment_id = $1::varchar
+             AND candidate_id = ANY($2::varchar[])
+           RETURNING id`,
+          [assessmentId, targetIds]
+        );
+        deletedAttempts += delTa.rowCount || 0;
+      } else {
+        const delTa = await client.query(
+          `DELETE FROM test_attempts
+           WHERE candidate_id = ANY($1::varchar[])
+           RETURNING id`,
+          [targetIds]
+        );
+        deletedAttempts += delTa.rowCount || 0;
+      }
     }
 
     // 2. Delete submission(s) from assessment_submissions and submissions

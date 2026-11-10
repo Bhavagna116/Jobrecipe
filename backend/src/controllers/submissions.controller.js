@@ -33,7 +33,8 @@ export const submitAssessment = async (req, res) => {
     answers,
     proctoringViolations,
     autoSubmitted,
-    autoSubmitReason
+    autoSubmitReason,
+    attemptId,
   } = req.body;
 
   // Resolve candidate identity from authenticated token or request body
@@ -137,6 +138,32 @@ export const submitAssessment = async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Resolve the paper set assigned to this candidate's attempt so grading is
+    // scoped to exactly that set (not the assessment's default Set A).
+    let attemptSetCode = null;
+    try {
+      if (attemptId) {
+        const taRes = await client.query(
+          `SELECT set_code FROM test_attempts
+           WHERE id = $1 AND assessment_id = $2 AND candidate_id = $3
+           LIMIT 1`,
+          [attemptId, asmId, candidateId]
+        );
+        attemptSetCode = taRes.rows[0]?.set_code || null;
+      }
+      if (!attemptSetCode) {
+        const taRes = await client.query(
+          `SELECT set_code FROM test_attempts
+           WHERE assessment_id = $1 AND candidate_id = $2
+           ORDER BY created_at DESC LIMIT 1`,
+          [asmId, candidateId]
+        );
+        attemptSetCode = taRes.rows[0]?.set_code || null;
+      }
+    } catch (setErr) {
+      console.warn('Could not resolve attempt set code:', setErr.message);
+    }
+
     // 1. Authoritative Backend Scoring
     // Calculate deterministic scores using stored answer keys in PostgreSQL
     const evaluation = await evaluateSubmission({
@@ -145,6 +172,7 @@ export const submitAssessment = async (req, res) => {
       questionIds: questionIds || [],
       totalQuestions: clientTotalQuestions,
       dbClient: client,
+      setCode: attemptSetCode,
     });
 
     const finalScore = evaluation.score;

@@ -98,6 +98,10 @@ export const AssessmentPage = () => {
   const [attemptSections, setAttemptSections] = useState([]);
   const [sectionIndex, setSectionIndex] = useState(0);
   const [sectionQuestions, setSectionQuestions] = useState([]);
+  // Every question served for this attempt's assigned set, keyed by question id.
+  // Used to grade written coding answers for the correct set (not the default
+  // Set A list held on activeAssessment).
+  const attemptQuestionsRef = useRef(new Map());
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | saved | error
 
   // Proctoring & Camera States
@@ -309,9 +313,13 @@ export const AssessmentPage = () => {
 
   // Helper to ensure any written coding solutions are authoritatively graded before submission
   const evaluatePendingCodingAnswers = async (currentAnswers) => {
-    const questionsList = (activeAssessment?.questions && activeAssessment.questions.length > 0)
-      ? activeAssessment.questions
-      : questionBank;
+    // Use the questions actually served for this attempt's assigned set.
+    const attemptQs = Array.from(attemptQuestionsRef.current.values());
+    const questionsList = attemptQs.length > 0
+      ? attemptQs
+      : ((activeAssessment?.questions && activeAssessment.questions.length > 0)
+        ? activeAssessment.questions
+        : questionBank);
     let finalAnswers = { ...currentAnswers };
     const codingQuestions = (questionsList || []).filter(q => q.type === 'Coding');
 
@@ -411,7 +419,9 @@ export const AssessmentPage = () => {
       setAttemptId(data.attemptId);
       setAttemptSections(data.sections || []);
       setSectionIndex(data.sectionIndex || 0);
-      setSectionQuestions(normalizeSectionQuestions(data.currentSection?.questions));
+      const firstQuestions = normalizeSectionQuestions(data.currentSection?.questions);
+      setSectionQuestions(firstQuestions);
+      firstQuestions.forEach(q => attemptQuestionsRef.current.set(q.id, q));
 
       const seeded = { ...data.answers };
       lastAnswersRef.current = { ...seeded };
@@ -431,6 +441,7 @@ export const AssessmentPage = () => {
       setAttemptSections([{ id: null, name: 'All Questions', durationMinutes: Number(activeAssessment?.durationMinutes) || 30, status: 'InProgress' }]);
       setSectionIndex(0);
       setSectionQuestions(qs);
+      qs.forEach(q => attemptQuestionsRef.current.set(q.id, q));
       setTimeRemainingSeconds((Number(activeAssessment?.durationMinutes) || 30) * 60);
       lastAnswersRef.current = {};
       setAssessmentAnswers({});
@@ -495,7 +506,9 @@ export const AssessmentPage = () => {
         ...s,
         status: i < d.sectionIndex ? 'Completed' : (i === d.sectionIndex ? 'InProgress' : s.status),
       })));
-      setSectionQuestions(normalizeSectionQuestions(next.questions));
+      const nextQuestions = normalizeSectionQuestions(next.questions);
+      setSectionQuestions(nextQuestions);
+      nextQuestions.forEach(q => attemptQuestionsRef.current.set(q.id, q));
       setCurrentQuestionIndex(0);
       addToast(
         auto
@@ -572,7 +585,8 @@ export const AssessmentPage = () => {
       const res = await submitAssessment(finalAnswers, timeSpentMin, {
         proctoringViolations: violationCountRef.current,
         autoSubmitted: true,
-        autoSubmitReason: reason || 'proctoring_violations'
+        autoSubmitReason: reason || 'proctoring_violations',
+        attemptId: attemptIdRef.current || attemptId || null
       });
       if (res && !res.ok) {
         if (res.status === 409) {
@@ -615,7 +629,8 @@ export const AssessmentPage = () => {
       const res = await submitAssessment(finalAnswers, timeSpentMin, {
         proctoringViolations: violationCountRef.current,
         autoSubmitted: false,
-        autoSubmitReason: null
+        autoSubmitReason: null,
+        attemptId: attemptIdRef.current || attemptId || null
       });
 
       if (res && !res.ok) {
@@ -939,12 +954,28 @@ export const AssessmentPage = () => {
   const unansweredCount = totalQuestions - answeredCount;
   const reviewCount = markedForReview.filter(id => questions.some(q => q.id === id)).length;
 
-  // Totals across every section (used by the final submit confirmation)
-  const allQuestionsForSubmit = (activeAssessment?.questions && activeAssessment.questions.length > 0)
-    ? activeAssessment.questions
-    : questions;
-  const totalAnsweredCount = allQuestionsForSubmit.filter(q => assessmentAnswers[q.id] !== undefined && assessmentAnswers[q.id] !== null).length;
-  const totalUnansweredCount = allQuestionsForSubmit.length - totalAnsweredCount;
+  // Totals across every section (used by the final submit confirmation).
+  // IMPORTANT: answers are keyed by the question IDs served for the attempt's
+  // randomly assigned paper set, so they must NOT be compared against
+  // `activeAssessment.questions` (which is the default Set A list). Use the
+  // per-section question counts returned by the attempt plus the actual
+  // answered IDs instead.
+  const sectionTotalQuestions = attemptSections.reduce(
+    (sum, s) => sum + (Number(s.questionCount) || 0),
+    0
+  );
+  const submitTotalQuestions = sectionTotalQuestions > 0
+    ? sectionTotalQuestions
+    : ((activeAssessment?.questions && activeAssessment.questions.length > 0)
+      ? activeAssessment.questions.length
+      : totalQuestions);
+  const totalAnsweredCount = Math.min(
+    submitTotalQuestions,
+    Object.values(assessmentAnswers || {}).filter(
+      v => v !== undefined && v !== null
+    ).length
+  );
+  const totalUnansweredCount = Math.max(0, submitTotalQuestions - totalAnsweredCount);
 
   const isMarked = markedForReview.includes(currentQuestion?.id);
   const selectedOption = assessmentAnswers[currentQuestion?.id];

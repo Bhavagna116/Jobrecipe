@@ -1269,6 +1269,7 @@ export const AppProvider = ({ children }) => {
       ? activeAssessment.questions
       : bank;
     const totalQuestions = asmQuestions.length || 1;
+    let authoritativeTotalQuestions = totalQuestions;
 
     let totalPossibleMarks = 0;
     let totalObtainedMarks = 0;
@@ -1280,7 +1281,8 @@ export const AppProvider = ({ children }) => {
 
     asmQuestions.forEach((q) => {
       const isCoding = q.type === 'Coding' || q.category === 'Coding';
-      const qMarks = Number(q.marks) > 0 ? Number(q.marks) : (isCoding ? 10 : 4);
+      // Uniform marking: every question is worth exactly 1 mark.
+      const qMarks = 1;
       const cat = (q.category || 'Technical').trim();
       const top = (q.topic || 'General').trim();
 
@@ -1323,7 +1325,7 @@ export const AppProvider = ({ children }) => {
       if (hasAnswered) {
         if (isCodingAnswer) {
           const scorePct = Number(userAns?.score ?? (userAns?.passedTests && userAns?.totalTests ? (userAns.passedTests / userAns.totalTests) * 100 : (userAns?.code ? 100 : 0)));
-          const earned = Math.round((scorePct / 100) * qMarks);
+          const earned = scorePct >= 60 ? qMarks : 0;
           totalObtainedMarks += earned;
           categoryStats[cat].obtainedMarks += earned;
           topicStats[top].obtainedMarks += earned;
@@ -1474,6 +1476,7 @@ export const AppProvider = ({ children }) => {
       topicBreakdown,
       questionIds: asmQuestions.map(q => q.id),
       answers: answers,
+      attemptId: metadata.attemptId || null,
       proctoringViolations: Number(metadata.proctoringViolations || 0),
       autoSubmitted: Boolean(metadata.autoSubmitted),
       autoSubmitReason: metadata.autoSubmitReason || null
@@ -1517,6 +1520,11 @@ export const AppProvider = ({ children }) => {
       if (typeof dbData.incorrect_count === 'number') incorrect = dbData.incorrect_count;
       if (typeof dbData.unanswered_count === 'number') unanswered = dbData.unanswered_count;
 
+      // Authoritative question count for the assigned set (the submission row
+      // does not store total_questions, so derive it from the graded counts).
+      const summedTotalQuestions = Number(correct || 0) + Number(incorrect || 0) + Number(unanswered || 0);
+      if (summedTotalQuestions > 0) authoritativeTotalQuestions = summedTotalQuestions;
+
       const dbObtained = typeof dbData.obtained_marks === 'number' ? dbData.obtained_marks : (typeof dbData.obtainedMarks === 'number' ? dbData.obtainedMarks : null);
       const dbTotal = typeof dbData.total_marks === 'number' ? dbData.total_marks : (typeof dbData.totalMarks === 'number' ? dbData.totalMarks : null);
 
@@ -1540,7 +1548,7 @@ export const AppProvider = ({ children }) => {
           correct_count: correct,
           incorrect_count: incorrect,
           unanswered_count: unanswered,
-          total_questions: totalQuestions,
+          total_questions: authoritativeTotalQuestions,
           status: 'Completed',
           created_at: new Date().toISOString()
         },
@@ -1581,7 +1589,7 @@ export const AppProvider = ({ children }) => {
       correctCount: correct,
       incorrectCount: incorrect,
       unansweredCount: unanswered,
-      totalQuestions,
+      totalQuestions: authoritativeTotalQuestions,
       timeTaken: `${timeSpentMin} min`,
       completedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       assessmentId: activeAssessment?.id || 'asm-1',

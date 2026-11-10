@@ -65,8 +65,12 @@ export const evaluateSubmission = async ({
   const answerEntries = typeof answers === 'object' && answers !== null ? answers : {};
   const answeredQuestionIds = Object.keys(answerEntries);
 
-  // Combine provided questionIds and answeredQuestionIds into a unified unique set
-  const allQuestionIds = Array.from(new Set([
+  // When the attempt's paper set is known, grade against the FULL assigned set.
+  // This is authoritative: it stops answers from the assigned set being merged
+  // with the assessment's default (Set A) questions, which inflated the totals.
+  const isSetScoped = Boolean(assessmentId && setCode && dbClient);
+
+  let allQuestionIds = Array.from(new Set([
     ...(Array.isArray(questionIds) ? questionIds : []),
     ...answeredQuestionIds
   ]));
@@ -89,33 +93,51 @@ export const evaluateSubmission = async ({
     }
   }
 
-  // 2. Fetch authoritative question details using all question IDs from assessment_questions or questions table
-  if (allQuestionIds.length > 0 && dbClient) {
+  // 2. Fetch authoritative question details
+  if (dbClient) {
     try {
-      if (assessmentId) {
-        const setFilter = setCode ? ` AND aq.set_code = $3` : '';
+      if (isSetScoped) {
+        // Grade every question in the exact paper set assigned to this attempt.
         const aqRes = await dbClient.query(
           `SELECT question_id as id, correct_answer, marks, category, topic, options
            FROM assessment_questions
-           WHERE assessment_id = $1 AND question_id = ANY($2::varchar[])${setFilter}`,
-          setCode ? [assessmentId, allQuestionIds, setCode] : [assessmentId, allQuestionIds]
+           WHERE assessment_id = $1 AND set_code = $2
+           ORDER BY created_at ASC, id ASC`,
+          [assessmentId, setCode]
         );
-        if (aqRes.rows.length > 0) {
-          assessmentQuestions = aqRes.rows;
+        assessmentQuestions = aqRes.rows;
+        // Only trust the set as authoritative when it actually has questions;
+        // otherwise fall through to the supplied question ids below.
+        if (assessmentQuestions.length > 0) {
+          allQuestionIds = assessmentQuestions.map(q => q.id);
         }
       }
 
-      // If not in assessment_questions or partial, fetch from questions table
-      if (assessmentQuestions.length < allQuestionIds.length) {
-        const foundIds = new Set(assessmentQuestions.map(q => q.id));
-        const missingIds = allQuestionIds.filter(id => !foundIds.has(id));
-        const qRes = await dbClient.query(
-          `SELECT id, correct_answer, marks, category, topic, options
-           FROM questions
-           WHERE id = ANY($1::varchar[])`,
-          [missingIds]
-        );
-        assessmentQuestions = [...assessmentQuestions, ...qRes.rows];
+      if (!isSetScoped || assessmentQuestions.length === 0) {
+        if (assessmentId) {
+          const aqRes = await dbClient.query(
+            `SELECT question_id as id, correct_answer, marks, category, topic, options
+             FROM assessment_questions
+             WHERE assessment_id = $1 AND question_id = ANY($2::varchar[])`,
+            [assessmentId, allQuestionIds]
+          );
+          if (aqRes.rows.length > 0) {
+            assessmentQuestions = aqRes.rows;
+          }
+        }
+
+        // If not in assessment_questions or partial, fetch from questions table
+        if (allQuestionIds.length > 0 && assessmentQuestions.length < allQuestionIds.length) {
+          const foundIds = new Set(assessmentQuestions.map(q => q.id));
+          const missingIds = allQuestionIds.filter(id => !foundIds.has(id));
+          const qRes = await dbClient.query(
+            `SELECT id, correct_answer, marks, category, topic, options
+             FROM questions
+             WHERE id = ANY($1::varchar[])`,
+            [missingIds]
+          );
+          assessmentQuestions = [...assessmentQuestions, ...qRes.rows];
+        }
       }
     } catch (err) {
       console.error('Error fetching questions from DB:', err.message);
@@ -125,14 +147,13 @@ export const evaluateSubmission = async ({
   // Build lookup map of authoritative questions: id -> question data
   const questionMap = new Map();
   assessmentQuestions.forEach((q) => {
-    const isCoding = String(q.category || '').toLowerCase().includes('cod');
     const optList = typeof q.options === 'string' ? JSON.parse(q.options) : (q.options || []);
     questionMap.set(q.id, {
       id: q.id,
       correctAnswer: (q.correct_answer || '').trim().toUpperCase(),
       category: (q.category || 'General').trim(),
       topic: (q.topic || 'General').trim(),
-      marks: Number(q.marks) > 0 ? Number(q.marks) : (isCoding ? 10 : 4),
+      marks: 1, // uniform: every question is worth exactly 1 mark
       options: optList,
     });
   });
@@ -142,13 +163,12 @@ export const evaluateSubmission = async ({
     if (!questionMap.has(qId)) {
       const fb = fallbackQuestions.find(f => f.id === qId);
       if (fb) {
-        const isCoding = String(fb.category || '').toLowerCase().includes('cod');
         questionMap.set(fb.id, {
           id: fb.id,
           correctAnswer: (fb.correct_answer || fb.correctAnswer || '').trim().toUpperCase(),
           category: (fb.category || 'General').trim(),
           topic: (fb.topic || 'General').trim(),
-          marks: Number(fb.marks) > 0 ? Number(fb.marks) : (isCoding ? 10 : 4),
+          marks: 1, // uniform: every question is worth exactly 1 mark
           options: fb.options || [],
         });
       }
@@ -158,13 +178,12 @@ export const evaluateSubmission = async ({
   // If questionMap is still empty, match from fallbackQuestions pool
   if (questionMap.size === 0 && fallbackQuestions.length > 0) {
     fallbackQuestions.slice(0, 10).forEach(fb => {
-      const isCoding = String(fb.category || '').toLowerCase().includes('cod');
       questionMap.set(fb.id, {
         id: fb.id,
         correctAnswer: (fb.correct_answer || fb.correctAnswer || '').trim().toUpperCase(),
         category: (fb.category || 'General').trim(),
         topic: (fb.topic || 'General').trim(),
-        marks: Number(fb.marks) > 0 ? Number(fb.marks) : (isCoding ? 10 : 4),
+        marks: 1, // uniform: every question is worth exactly 1 mark
         options: fb.options || [],
       });
     });
@@ -217,7 +236,9 @@ export const evaluateSubmission = async ({
       if (hasAnswered) {
         if (isCodingAnswer) {
           const codingScorePct = Number(userAnswer.score ?? (userAnswer.passedTests && userAnswer.totalTests ? (userAnswer.passedTests / userAnswer.totalTests) * 100 : 100));
-          const earned = Math.round((codingScorePct / 100) * qMarks);
+          // Uniform 1-mark questions are all-or-nothing: full marks when at
+          // least 60% of the test cases pass, otherwise zero.
+          const earned = codingScorePct >= 60 ? qMarks : 0;
           totalObtainedMarks += earned;
           categoryStats[qCategory].obtainedMarks += earned;
           topicStats[topicKey].obtainedMarks += earned;
@@ -254,21 +275,23 @@ export const evaluateSubmission = async ({
   } else {
     // Ultimate fallback if no questions could be identified
     answeredQuestionIds.forEach((qId) => {
-      totalPossibleMarks += 4;
+      totalPossibleMarks += 1;
       if (answerEntries[qId]) {
         incorrectCount += 1;
       }
     });
   }
 
-  const totalQuestions = Math.max(
-    1,
-    Number(expectedTotalQuestions) ||
-      assessmentMeta?.total_questions ||
-      questionMap.size ||
-      answeredQuestionIds.length ||
-      1
-  );
+  const totalQuestions = isSetScoped && questionMap.size > 0
+    ? questionMap.size
+    : Math.max(
+        1,
+        Number(expectedTotalQuestions) ||
+          assessmentMeta?.total_questions ||
+          questionMap.size ||
+          answeredQuestionIds.length ||
+          1
+      );
 
   const attemptedCount = correctCount + incorrectCount;
   if (questionMap.size === 0) {

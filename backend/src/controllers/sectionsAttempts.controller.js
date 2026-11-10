@@ -284,6 +284,25 @@ const buildStartPayload = async (client, attempt, assessment, includeAnswer, ans
 
   const currentIdx = Math.max(0, sectionRows.findIndex(s => s.status !== 'Completed'));
 
+  // Question counts for the exact paper set assigned to this attempt. The
+  // client needs these to show an accurate answered/unanswered summary across
+  // all sections instead of comparing against the assessment's default set.
+  const countParams = [assessment.id];
+  let countWhere = 'assessment_id = $1';
+  if (setCode) {
+    countParams.push(setCode);
+    countWhere += ' AND set_code = $2';
+  }
+  const countRes = await client.query(
+    `SELECT section_id, COUNT(*)::int AS count
+     FROM assessment_questions
+     WHERE ${countWhere}
+     GROUP BY section_id`,
+    countParams
+  );
+  const sectionCounts = new Map(countRes.rows.map(r => [r.section_id, Number(r.count) || 0]));
+  const totalSetQuestions = countRes.rows.reduce((sum, r) => sum + (Number(r.count) || 0), 0);
+
   const sections = [];
   for (let i = 0; i < sectionRows.length; i++) {
     const row = sectionRows[i];
@@ -297,6 +316,10 @@ const buildStartPayload = async (client, attempt, assessment, includeAnswer, ans
       status: row.status,
       durationMinutes: Math.round((Number(row.time_limit_seconds) || 1800) / 60),
       timeLimitSeconds: Number(row.time_limit_seconds) || 1800,
+      // section_id is NULL for an implicit single-section assessment.
+      questionCount: row.section_id
+        ? (sectionCounts.get(row.section_id) || 0)
+        : totalSetQuestions,
     });
   }
 
@@ -693,7 +716,8 @@ export const submitAssessmentAttempt = async (req, res) => {
     };
 
     for (const row of qRes.rows) {
-      const marks = Number(row.marks) || 1;
+      // Uniform marking: every question is worth exactly 1 mark.
+      const marks = 1;
       const cat = (row.category || 'Technical').trim();
       const topic = (row.topic || 'General').trim();
       const isCoding = row.type === 'Coding';
@@ -709,7 +733,12 @@ export const submitAssessmentAttempt = async (req, res) => {
       tStat.totalQuestions += 1;
 
       const userRaw = row.selected_option;
-      const hasAnswered = userRaw !== null && userRaw !== undefined && String(userRaw).trim() !== '';
+      const codingAnswer = finalAnswers[row.question_id];
+      const isCodingAnswer = typeof codingAnswer === 'object' && codingAnswer !== null &&
+        (codingAnswer.code !== undefined || codingAnswer.score !== undefined ||
+         codingAnswer.passedTests !== undefined);
+      const hasAnswered = isCodingAnswer ||
+        (userRaw !== null && userRaw !== undefined && String(userRaw).trim() !== '');
 
       if (!hasAnswered) {
         unanswered += 1;
@@ -721,13 +750,12 @@ export const submitAssessmentAttempt = async (req, res) => {
       let isCorrect = false;
 
       if (isCoding) {
-        // Coding grading happens in the submissions pipeline; use the client's
-        // evaluated score attached at final submit when available.
-        const ans = finalAnswers[row.question_id];
-        const scorePct = Number(ans?.score ?? (ans?.passedTests && ans?.totalTests ? (ans.passedTests / ans.totalTests) * 100 : NaN));
+        // Coding grading comes from the client-evaluated test results attached
+        // at final submit. Uniform marks are all-or-nothing.
+        const scorePct = Number(codingAnswer?.score ?? (codingAnswer?.passedTests && codingAnswer?.totalTests ? (codingAnswer.passedTests / codingAnswer.totalTests) * 100 : NaN));
         if (!Number.isNaN(scorePct)) {
-          earned = Math.round((Math.min(100, Math.max(0, scorePct)) / 100) * marks);
           isCorrect = scorePct >= 60;
+          earned = isCorrect ? marks : 0;
         }
       } else {
         const correctVal = row.correct_answer;
