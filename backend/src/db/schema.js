@@ -426,9 +426,11 @@ export const initSchema = async () => {
 
       ALTER TABLE assessment_submissions ADD COLUMN IF NOT EXISTS proctoring_violations INT DEFAULT 0;
       ALTER TABLE assessment_submissions ADD COLUMN IF NOT EXISTS auto_submitted BOOLEAN DEFAULT FALSE;
-      ALTER TABLE assessment_submissions ADD COLUMN IF NOT EXISTS auto_submit_reason VARCHAR(128);
+      ALTER TABLE assessment_submissions ADD COLUMN IF NOT EXISTS auto_submit_reason TEXT;
+      ALTER TABLE assessment_submissions ADD COLUMN IF NOT EXISTS proctoring_summary JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE assessment_submissions ADD COLUMN IF NOT EXISTS obtained_marks INT DEFAULT 0;
       ALTER TABLE assessment_submissions ADD COLUMN IF NOT EXISTS total_marks INT DEFAULT 0;
+      ALTER TABLE assessment_submissions ALTER COLUMN auto_submit_reason TYPE TEXT;
 
       CREATE INDEX IF NOT EXISTS idx_proctoring_attempt ON proctoring_events(attempt_id);
       CREATE INDEX IF NOT EXISTS idx_proctoring_candidate ON proctoring_events(candidate_id);

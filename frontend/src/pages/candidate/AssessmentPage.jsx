@@ -138,6 +138,7 @@ export const AssessmentPage = () => {
 
   const navStrikeCountRef = useRef(0);
   const lastNavViolationAtRef = useRef(0);
+  const violationLogRef = useRef([]);
   const isSubmittedRef = useRef(false);
   const timerRef = useRef(null);
   const hasRedirectedRef = useRef(false);
@@ -594,6 +595,7 @@ export const AssessmentPage = () => {
       const timeSpentMin = Math.max(1, Math.round(durationSec / 60));
       const res = await submitAssessment(finalAnswers, timeSpentMin, {
         proctoringViolations: violationCountRef.current,
+        proctoringSummary: violationLogRef.current,
         autoSubmitted: true,
         autoSubmitReason: reason || 'proctoring_violations',
         attemptId: attemptIdRef.current || attemptId || null
@@ -638,6 +640,7 @@ export const AssessmentPage = () => {
       const timeSpentMin = Math.max(1, Math.round(durationSec / 60));
       const res = await submitAssessment(finalAnswers, timeSpentMin, {
         proctoringViolations: violationCountRef.current,
+        proctoringSummary: violationLogRef.current,
         autoSubmitted: false,
         autoSubmitReason: null,
         attemptId: attemptIdRef.current || attemptId || null
@@ -836,6 +839,11 @@ export const AssessmentPage = () => {
       navStrikeCountRef.current += 1;
       const strike = navStrikeCountRef.current;
       const isFinal = strike >= NAV_MAX_STRIKES;
+      const eventTimestamp = new Date().toISOString();
+
+      // Keep a local copy so the submission always carries the exact trail,
+      // even if the final log request is still in flight at submit time.
+      violationLogRef.current.push({ type: kind, title, message, strike, timestamp: eventTimestamp });
 
       setViolationCount(prev => Math.max(prev, strike));
       setIsPausedForWarning(true);
@@ -845,7 +853,7 @@ export const AssessmentPage = () => {
         candidateId: currentUser?.id,
         assessmentId: activeAssessment?.id,
         type: kind,
-        timestamp: new Date().toISOString(),
+        timestamp: eventTimestamp,
         details: { title, message, strikeNumber: strike }
       }).catch(e => console.warn('Failed to log proctoring event:', e));
 

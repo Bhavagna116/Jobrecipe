@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { api, apiUrl } from '../../services/api';
 import { Modal } from '../../components/common/Modal';
 import { AssessmentReportModal } from '../../components/candidate/AssessmentReportModal';
+import { formatISTTime, formatISTDateTime } from '../../utils/dateTime';
 import {
   Users,
   Search,
@@ -882,7 +883,7 @@ export const AdminCandidatesPage = () => {
                     ? 'bg-amber-50 border-amber-200 text-amber-800'
                     : 'bg-rose-50 border-rose-200 text-rose-800'
                 }`}>
-                  <span className="text-[10px] font-bold uppercase block">Face Warnings</span>
+                  <span className="text-[10px] font-bold uppercase block">Proctoring Warnings</span>
                   <strong className="text-sm font-extrabold">
                     {candidateProctoringEvents.length} / 3
                   </strong>
@@ -924,7 +925,7 @@ export const AdminCandidatesPage = () => {
                         </span>
                       </div>
                       <span className="text-slate-400 text-[10px] font-mono whitespace-nowrap">
-                        {new Date(evt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        {formatISTTime(evt.timestamp)} <span className="text-[9px] font-bold text-slate-400">IST</span>
                       </span>
                     </div>
                   ))}
@@ -932,7 +933,7 @@ export const AdminCandidatesPage = () => {
               ) : (
                 <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] font-medium text-emerald-800 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                  <span>No proctoring violations recorded for this candidate attempt. Full facial presence verified.</span>
+                  <span>No proctoring violations recorded for this candidate.</span>
                 </div>
               )}
             </div>
@@ -964,8 +965,29 @@ export const AdminCandidatesPage = () => {
                           <span>•</span>
                           <span>Accuracy: {sub.accuracy}%</span>
                           <span>•</span>
-                          <span>Submitted: {new Date(sub.created_at || Date.now()).toLocaleDateString()}</span>
+                          <span>Submitted: {formatISTDateTime(sub.created_at || Date.now())} IST</span>
                         </div>
+                        {sub.auto_submitted ? (
+                          <div className="mt-1.5 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1">
+                            Auto-submitted: {sub.auto_submit_reason || 'Proctoring violations'}
+                          </div>
+                        ) : null}
+                        {Array.isArray(sub.proctoring_summary) && sub.proctoring_summary.length > 0 ? (
+                          <details className="mt-1">
+                            <summary className="text-[11px] font-bold text-slate-500 cursor-pointer select-none">
+                              Why? View {sub.proctoring_summary.length} recorded event(s)
+                            </summary>
+                            <ul className="mt-1 space-y-0.5 pl-3">
+                              {sub.proctoring_summary.map((evt, idx) => (
+                                <li key={idx} className="text-[10px] text-slate-600 list-disc">
+                                  <span className="font-bold text-slate-800">{evt.type || 'VIOLATION'}</span>
+                                  {evt.timestamp ? ` at ${formatISTTime(evt.timestamp)} IST` : ''}
+                                  {evt.message ? ` — ${evt.message}` : (evt.title ? ` — ${evt.title}` : '')}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
                       </div>
                       {isSuperAdmin && (
                       <button

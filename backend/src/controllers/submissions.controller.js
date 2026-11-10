@@ -32,6 +32,7 @@ export const submitAssessment = async (req, res) => {
     questionIds,
     answers,
     proctoringViolations,
+    proctoringSummary,
     autoSubmitted,
     autoSubmitReason,
     attemptId,
@@ -116,6 +117,10 @@ export const submitAssessment = async (req, res) => {
       category_scores: (evaluation.categoryScores && Object.keys(evaluation.categoryScores).length > 0) ? evaluation.categoryScores : (clientCategoryScores || { technical: finalScore }),
       topic_breakdown: (evaluation.topicBreakdown && evaluation.topicBreakdown.length > 0) ? evaluation.topicBreakdown : (clientTopicBreakdown || []),
       answers: answers || {},
+      proctoring_violations: Math.max(Number(proctoringViolations || 0), Array.isArray(proctoringSummary) ? proctoringSummary.length : 0),
+      proctoring_summary: Array.isArray(proctoringSummary) ? proctoringSummary : [],
+      auto_submitted: Boolean(autoSubmitted),
+      auto_submit_reason: autoSubmitted ? (autoSubmitReason || 'Auto-submitted') : null,
       created_at: new Date().toISOString()
     };
     saveSubmissionFallback(submission);
@@ -141,6 +146,7 @@ export const submitAssessment = async (req, res) => {
     // Resolve the paper set assigned to this candidate's attempt so grading is
     // scoped to exactly that set (not the assessment's default Set A).
     let attemptSetCode = null;
+    let resolvedAttemptId = attemptId || null;
     try {
       if (attemptId) {
         const taRes = await client.query(
@@ -153,16 +159,87 @@ export const submitAssessment = async (req, res) => {
       }
       if (!attemptSetCode) {
         const taRes = await client.query(
-          `SELECT set_code FROM test_attempts
+          `SELECT id, set_code FROM test_attempts
            WHERE assessment_id = $1 AND candidate_id = $2
            ORDER BY created_at DESC LIMIT 1`,
           [asmId, candidateId]
         );
         attemptSetCode = taRes.rows[0]?.set_code || null;
+        if (!resolvedAttemptId) resolvedAttemptId = taRes.rows[0]?.id || null;
       }
     } catch (setErr) {
       console.warn('Could not resolve attempt set code:', setErr.message);
     }
+
+    // Collect the authoritative proctoring trail for this attempt. Prefer the
+    // events already stored server-side; fall back to the client copy (which may
+    // include the last event if its request was still in flight).
+    let proctoringEvents = [];
+    if (resolvedAttemptId) {
+      try {
+        const peRes = await client.query(
+          `SELECT type, timestamp, details
+           FROM proctoring_events
+           WHERE attempt_id = $1
+           ORDER BY timestamp ASC`,
+          [resolvedAttemptId]
+        );
+        proctoringEvents = peRes.rows.map(row => ({
+          type: row.type,
+          timestamp: row.timestamp,
+          ...(row.details || {}),
+        }));
+      } catch (peErr) {
+        console.warn('Could not load proctoring events:', peErr.message);
+      }
+    }
+    if (Array.isArray(proctoringSummary) && proctoringSummary.length > proctoringEvents.length) {
+      proctoringEvents = proctoringSummary;
+    }
+
+    const describeProctoringEvent = (event) => {
+      const type = String(event?.type || '').toUpperCase();
+      const labels = {
+        TAB_SWITCH: 'navigated away from the exam',
+        WINDOW_BLUR: 'exam window lost focus',
+        FULLSCREEN_EXIT: 'left fullscreen mode',
+        ESCAPE_KEY: 'pressed Escape',
+        F11_KEY: 'pressed F11',
+        WINDOW_KEY: 'pressed the Windows/Command key',
+        NO_FACE: 'face not detected',
+        LOOKING_AWAY: 'looked away from the screen',
+        MULTIPLE_FACES: 'multiple faces detected',
+        EYE_GAZE_DIVERTED: 'eye gaze diverted',
+      };
+      // Always report in IST (Asia/Kolkata), regardless of server timezone.
+      let when = '';
+      if (event?.timestamp) {
+        try {
+          when = new Intl.DateTimeFormat('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true,
+          }).format(new Date(event.timestamp));
+        } catch (e) {
+          when = '';
+        }
+      }
+      return `${labels[type] || type || 'violation'}${when ? ` (${when} IST)` : ''}`;
+    };
+
+    const finalViolationCount = Math.max(
+      Number(proctoringViolations || 0),
+      proctoringEvents.length
+    );
+    const finalAutoSubmitReason = autoSubmitted
+      ? (autoSubmitReason === 'time_expired'
+        ? 'Time expired'
+        : proctoringEvents.length > 0
+          ? `${proctoringEvents.length} proctoring violation(s): ${proctoringEvents.map(describeProctoringEvent).join('; ')}`
+          : (autoSubmitReason || 'Auto-submitted'))
+      : null;
 
     // 1. Authoritative Backend Scoring
     // Calculate deterministic scores using stored answer keys in PostgreSQL
@@ -228,8 +305,8 @@ export const submitAssessment = async (req, res) => {
     // 3. Insert into assessment_submissions table
     const result = await client.query(
       `INSERT INTO assessment_submissions 
-       (id, candidate_id, candidate_name, candidate_email, assessment_id, assessment_title, score, accuracy, correct_count, incorrect_count, unanswered_count, time_taken, category_scores, topic_breakdown, answers, proctoring_violations, auto_submitted, auto_submit_reason, status, obtained_marks, total_marks, college_id, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'Completed',$19,$20,$21,NOW())
+       (id, candidate_id, candidate_name, candidate_email, assessment_id, assessment_title, score, accuracy, correct_count, incorrect_count, unanswered_count, time_taken, category_scores, topic_breakdown, answers, proctoring_violations, proctoring_summary, auto_submitted, auto_submit_reason, status, obtained_marks, total_marks, college_id, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'Completed',$20,$21,$22,NOW())
        RETURNING *`,
       [
         id,
@@ -247,9 +324,10 @@ export const submitAssessment = async (req, res) => {
         JSON.stringify(finalCategoryScores),
         JSON.stringify(finalTopicBreakdown),
         JSON.stringify(answers || {}),
-        Number(proctoringViolations || 0),
+        finalViolationCount,
+        JSON.stringify(proctoringEvents),
         Boolean(autoSubmitted),
-        autoSubmitReason || null,
+        finalAutoSubmitReason,
         finalObtainedMarks,
         finalTotalMarks,
         submissionCollegeId

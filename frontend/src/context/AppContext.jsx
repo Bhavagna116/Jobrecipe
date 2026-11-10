@@ -1480,6 +1480,7 @@ export const AppProvider = ({ children }) => {
       answers: answers,
       attemptId: metadata.attemptId || null,
       proctoringViolations: Number(metadata.proctoringViolations || 0),
+      proctoringSummary: Array.isArray(metadata.proctoringSummary) ? metadata.proctoringSummary : [],
       autoSubmitted: Boolean(metadata.autoSubmitted),
       autoSubmitReason: metadata.autoSubmitReason || null
     });
