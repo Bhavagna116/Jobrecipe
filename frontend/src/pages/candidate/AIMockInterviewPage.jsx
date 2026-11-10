@@ -426,7 +426,9 @@ export const AIMockInterviewPage = () => {
             communicationScore: 0,
             eyeContactScore: Number(telemetry.eyeContact) || 0,
             attentionScore: Number(telemetry.attention) || 0,
-            confidenceScore: Number(telemetry.confidence) || 0
+            // Confidence is a delivery metric, not camera presence. A
+            // terminated answer has no assessed delivery.
+            confidenceScore: 0
           }];
 
           const violationAnalysis = {
@@ -436,7 +438,7 @@ export const AIMockInterviewPage = () => {
             technicalScore: 0,
             eyeContactScore: Number(telemetry.eyeContact) || 0,
             attentionScore: Number(telemetry.attention) || 0,
-            confidenceScore: Number(telemetry.confidence) || 0,
+            confidenceScore: 0,
             dominantEmotion: 'Distracted',
             aiFeedback: 'Session auto-submitted due to repeated proctoring warnings.',
             questionBreakdown: fallbackAns.map((a) => ({
@@ -2447,6 +2449,7 @@ export const AIMockInterviewPage = () => {
     let calculatedScore = 0;
     let techScore = 0;
     let commScore = 0;
+    let localConfidence = 0;
     let quality = 'No Response';
 
     // Snapshot the measured camera telemetry at the moment this answer ends.
@@ -2481,15 +2484,45 @@ export const AIMockInterviewPage = () => {
       const fillerHits = ['um', 'uh', 'like', 'basically', 'actually', 'you know'].filter((kw) => hasWord(kw));
       const sentenceCount = (recordedText.match(/[.!?]+/g) || []).length;
 
-      commScore = 0;
-      if (wordCount >= 8) commScore += 10;
-      if (wordCount >= 20) commScore += 10;
-      if (wordCount >= 40) commScore += 10;
-      if (wordCount >= 70) commScore += 10;
-      if (sentenceCount >= 2) commScore += 10;
-      if (sentenceCount >= 4) commScore += 5;
-      if (fillerHits.length === 0) commScore += 10;
-      commScore = Math.min(95, commScore);
+      const answerDurationSeconds = Math.max(
+        1,
+        Math.round((Date.now() - (qStartTimeRef.current || Date.now())) / 1000)
+      );
+      const speechRate = Math.min(
+        220,
+        Math.max(60, Math.round(wordCount / Math.max(0.2, answerDurationSeconds / 60)))
+      );
+      const uniqueWords = new Set(
+        words.map((w) => w.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean)
+      );
+      const lexicalDiversity = uniqueWords.size / Math.max(1, wordCount);
+      const fillerRatio = fillerHits.length / Math.max(1, wordCount);
+
+      // Fluency/communication: pacing, filler control, structure, variety,
+      // and substance. No generic baseline.
+      let fluency = 0;
+      if (speechRate >= 110 && speechRate <= 160) fluency += 30;
+      else if (speechRate >= 90 && speechRate <= 190) fluency += 20;
+      else if (speechRate >= 70 && speechRate <= 210) fluency += 10;
+
+      if (fillerRatio === 0) fluency += 25;
+      else if (fillerRatio <= 0.02) fluency += 20;
+      else if (fillerRatio <= 0.05) fluency += 12;
+      else if (fillerRatio <= 0.10) fluency += 5;
+
+      if (sentenceCount >= 4) fluency += 20;
+      else if (sentenceCount >= 2) fluency += 12;
+      else if (sentenceCount === 1) fluency += 5;
+
+      if (lexicalDiversity >= 0.75) fluency += 15;
+      else if (lexicalDiversity >= 0.60) fluency += 10;
+      else if (lexicalDiversity >= 0.45) fluency += 5;
+
+      if (wordCount >= 80) fluency += 10;
+      else if (wordCount >= 40) fluency += 6;
+      else if (wordCount >= 20) fluency += 3;
+
+      commScore = Math.min(95, Math.max(0, Math.round(fluency)));
 
       techScore = 0;
       techScore += Math.min(50, technicalHits.length * 8);
@@ -2498,7 +2531,23 @@ export const AIMockInterviewPage = () => {
       if (technicalHits.length > 0 && wordCount >= 40) techScore += 5;
       techScore = Math.min(95, techScore);
 
-      calculatedScore = Math.round(techScore * 0.5 + commScore * 0.3 + conf * 0.1 + eye * 0.1);
+      // Confidence blends behaviour with delivery quality, not camera presence.
+      const substanceScore = wordCount >= 80 ? 100 : wordCount >= 40 ? 80 : wordCount >= 20 ? 55 : wordCount >= 10 ? 30 : 0;
+      const structureScore = sentenceCount >= 4 ? 100 : sentenceCount >= 2 ? 75 : sentenceCount === 1 ? 45 : 0;
+      localConfidence = Math.min(95, Math.max(0, Math.round(
+        eye * 0.20 +
+        att * 0.20 +
+        commScore * 0.35 +
+        substanceScore * 0.15 +
+        structureScore * 0.10
+      )));
+
+      calculatedScore = Math.round(
+        techScore * 0.50 +
+        commScore * 0.25 +
+        localConfidence * 0.15 +
+        eye * 0.10
+      );
       quality = calculatedScore >= 85
         ? 'Excellent'
         : calculatedScore >= 70
@@ -2534,15 +2583,17 @@ export const AIMockInterviewPage = () => {
             const backendOverall = Number(ansData.answer.overallScore);
             const backendTech = Number(ansData.answer.technicalScore);
             const backendComm = Number(ansData.answer.communicationScore);
+            const backendConf = Number(ansData.answer.confidenceScore);
             calculatedScore = Number.isFinite(backendOverall) ? backendOverall : calculatedScore;
             techScore = Number.isFinite(backendTech) ? backendTech : techScore;
             commScore = Number.isFinite(backendComm) ? backendComm : commScore;
+            localConfidence = Number.isFinite(backendConf) ? backendConf : localConfidence;
             quality = ansData.answer.answerQuality || quality;
             answerTelemetry = {
               ...answerTelemetry,
               eyeContact: Number(ansData.answer.eyeContactScore ?? eye) || 0,
               attention: Number(ansData.answer.attentionScore ?? att) || 0,
-              confidence: Number(ansData.answer.confidenceScore ?? conf) || 0,
+              confidence: localConfidence,
               emotion: ansData.answer.dominantEmotion || answerTelemetry.emotion,
             };
           }
@@ -2564,7 +2615,7 @@ export const AIMockInterviewPage = () => {
       communicationScore: isSilent ? 0 : commScore,
       eyeContactScore: isSilent ? 0 : answerTelemetry.eyeContact,
       attentionScore: isSilent ? 0 : answerTelemetry.attention,
-      confidenceScore: isSilent ? 0 : answerTelemetry.confidence
+      confidenceScore: isSilent ? 0 : localConfidence
     };
 
     const updatedAnswers = [...answersList, answerRecord];

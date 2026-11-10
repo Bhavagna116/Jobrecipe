@@ -336,7 +336,7 @@ export default function InterviewAnalysisSection({ sessionId: initialSessionId }
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Confidence</span>
             <span className="text-xl font-black text-slate-900">{conf}%</span>
-            <span className="text-[10px] font-semibold text-slate-500 block">Posture Stability</span>
+            <span className="text-[10px] font-semibold text-slate-500 block">Delivery & Fluency</span>
           </div>
         </div>
 

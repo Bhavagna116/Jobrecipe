@@ -561,7 +561,10 @@ export const saveQuestionAnswer = async (req, res) => {
     // missing we score 0 rather than inventing a favourable baseline.
     const eyeContactVal = isAnswerEmpty ? 0 : round2(telemetry.eyeContact ?? 0);
     const attentionVal = isAnswerEmpty ? 0 : round2(telemetry.attention ?? 0);
-    const confidenceVal = isAnswerEmpty ? 0 : round2(telemetry.confidence ?? 0);
+    // Confidence is computed from delivery + camera behaviour below. The
+    // client's `confidence` field is camera presence, not confidence, and is
+    // deliberately not used as the score.
+    let confidenceVal = 0;
     const dominantEmotion = isAnswerEmpty ? 'Neutral' : (telemetry.emotion || 'Neutral');
 
     if (!isAnswerEmpty) {
@@ -579,19 +582,50 @@ export const saveQuestionAnswer = async (req, res) => {
       const sentenceCount = (transcript.match(/[.!?]+/g) || []).length;
       const hasNumbers = /\d/.test(lowerTranscript);
 
-      // Communication is earned through length, pacing, sentence structure,
-      // and low filler. It starts at 0 — speaking alone earns nothing.
-      commScore = 0;
-      if (wordCount >= 8) commScore += 10;
-      if (wordCount >= 20) commScore += 10;
-      if (wordCount >= 40) commScore += 10;
-      if (wordCount >= 70) commScore += 10;
-      if (speechRateVal >= 100 && speechRateVal <= 170) commScore += 15;
-      if (sentenceCount >= 2) commScore += 10;
-      if (sentenceCount >= 4) commScore += 5;
-      if (fillerHits.length === 0) commScore += 10;
-      else if (fillerHits.length > Math.max(1, Math.floor(wordCount * 0.08))) commScore -= 10;
-      commScore = Math.min(95, Math.max(0, Math.round(commScore)));
+      // Fluency/communication is earned through pacing, filler control,
+      // sentence structure, lexical variety, and sufficient substance.
+      const uniqueWords = new Set(
+        words.map((w) => w.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean)
+      );
+      const lexicalDiversity = uniqueWords.size / Math.max(1, wordCount);
+      const fillerRatio = fillerHits.length / Math.max(1, wordCount);
+
+      let fluency = 0;
+      if (speechRateVal >= 110 && speechRateVal <= 160) fluency += 30;
+      else if (speechRateVal >= 90 && speechRateVal <= 190) fluency += 20;
+      else if (speechRateVal >= 70 && speechRateVal <= 210) fluency += 10;
+
+      if (fillerRatio === 0) fluency += 25;
+      else if (fillerRatio <= 0.02) fluency += 20;
+      else if (fillerRatio <= 0.05) fluency += 12;
+      else if (fillerRatio <= 0.10) fluency += 5;
+
+      if (sentenceCount >= 4) fluency += 20;
+      else if (sentenceCount >= 2) fluency += 12;
+      else if (sentenceCount === 1) fluency += 5;
+
+      if (lexicalDiversity >= 0.75) fluency += 15;
+      else if (lexicalDiversity >= 0.60) fluency += 10;
+      else if (lexicalDiversity >= 0.45) fluency += 5;
+
+      if (wordCount >= 80) fluency += 10;
+      else if (wordCount >= 40) fluency += 6;
+      else if (wordCount >= 20) fluency += 3;
+
+      commScore = Math.min(95, Math.max(0, Math.round(fluency)));
+
+      // Confidence combines visible behaviour (eye contact, attention) with
+      // actual delivery quality (fluency, substance, structure). It will vary
+      // widely instead of sitting at a generic camera-presence percentage.
+      const substanceScore = wordCount >= 80 ? 100 : wordCount >= 40 ? 80 : wordCount >= 20 ? 55 : wordCount >= 10 ? 30 : 0;
+      const structureScore = sentenceCount >= 4 ? 100 : sentenceCount >= 2 ? 75 : sentenceCount === 1 ? 45 : 0;
+      confidenceVal = Math.min(95, Math.max(0, Math.round(
+        eyeContactVal * 0.20 +
+        attentionVal * 0.20 +
+        commScore * 0.35 +
+        substanceScore * 0.15 +
+        structureScore * 0.10
+      )));
 
       // Technical is strictly content-driven. There is no baseline: an answer
       // with no technical concepts scores 0 regardless of its length.
@@ -612,7 +646,7 @@ export const saveQuestionAnswer = async (req, res) => {
       matchedKeywords = allTechnicalHits;
 
       overallQScore = round2(
-        techScore * 0.50 + commScore * 0.30 + confidenceVal * 0.10 + eyeContactVal * 0.10
+        techScore * 0.50 + commScore * 0.25 + confidenceVal * 0.15 + eyeContactVal * 0.10
       );
 
       if (overallQScore >= 85) answerQuality = 'Excellent';
@@ -808,14 +842,19 @@ export const completeInterview = async (req, res) => {
     // per-answer telemetry that the client actually measured. This keeps the
     // report consistent with the answer-level scores instead of defaulting to
     // a fabricated baseline.
-    if (telemetry.length === 0 && answers.length > 0) {
-      const sumEye = answers.reduce((acc, a) => acc + Number(a.eyeContactScore || 0), 0);
-      const sumAtt = answers.reduce((acc, a) => acc + Number(a.attentionScore || 0), 0);
+    if (answers.length > 0) {
       const sumConf = answers.reduce((acc, a) => acc + Number(a.confidenceScore || 0), 0);
-
-      avgEyeContact = round2(sumEye / answers.length);
-      avgAttention = round2(sumAtt / answers.length);
+      // Confidence is always the answer-level delivery score, never the
+      // camera-presence telemetry value.
       avgConfidence = round2(sumConf / answers.length);
+
+      if (telemetry.length === 0) {
+        const sumEye = answers.reduce((acc, a) => acc + Number(a.eyeContactScore || 0), 0);
+        const sumAtt = answers.reduce((acc, a) => acc + Number(a.attentionScore || 0), 0);
+        avgEyeContact = round2(sumEye / answers.length);
+        avgAttention = round2(sumAtt / answers.length);
+      }
+
       dominantEmotion = validAnswersCount > 0
         ? (avgAttention >= 70 ? 'Focused' : avgAttention >= 40 ? 'Neutral' : 'Distracted')
         : 'Neutral';
@@ -825,8 +864,8 @@ export const completeInterview = async (req, res) => {
     const overallScore = validAnswersCount > 0
       ? round2(
           avgTechnical * 0.50 +
-          avgComm * 0.30 +
-          avgConfidence * 0.10 +
+          avgComm * 0.25 +
+          avgConfidence * 0.15 +
           avgEyeContact * 0.10
         )
       : 0;
@@ -1025,7 +1064,10 @@ export const completeInterview = async (req, res) => {
       : 0;
     const avgEye = telemetryAvg('eyeContact');
     const avgAtt = telemetryAvg('attention');
-    const avgConf = telemetryAvg('confidence');
+    // Confidence comes from per-answer delivery scoring, not camera presence.
+    const avgConf = hasSpoken
+      ? Math.round(answers.reduce((acc, a) => acc + Number(a.confidenceScore || 0), 0) / (answers.length || 1))
+      : 0;
 
     const measuredStrengths = [];
     if (avgEye >= 70) measuredStrengths.push('Sustained eye contact with the camera');
