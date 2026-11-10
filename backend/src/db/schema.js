@@ -494,6 +494,21 @@ export const initSchema = async () => {
       CREATE INDEX IF NOT EXISTS idx_questions_category_diff ON questions(category, difficulty);
       CREATE INDEX IF NOT EXISTS idx_submissions_candidate_id ON assessment_submissions(candidate_id);
       CREATE INDEX IF NOT EXISTS idx_submissions_cand_asm ON assessment_submissions(candidate_id, assessment_id);
+      CREATE INDEX IF NOT EXISTS idx_submissions_email_lower ON assessment_submissions(LOWER(candidate_email));
+      CREATE INDEX IF NOT EXISTS idx_candidate_profiles_email_lower ON candidate_profiles(LOWER(email));
+      CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users(LOWER(email));
+      DO $$
+      BEGIN
+        IF to_regclass('public.assessment_colleges') IS NOT NULL THEN
+          CREATE INDEX IF NOT EXISTS idx_assessment_colleges_pair ON assessment_colleges(assessment_id, college_id);
+        END IF;
+        IF to_regclass('public.interview_questions') IS NOT NULL THEN
+          CREATE INDEX IF NOT EXISTS idx_interview_questions_session ON interview_questions(session_id, question_number);
+        END IF;
+        IF to_regclass('public.interview_answers') IS NOT NULL THEN
+          CREATE INDEX IF NOT EXISTS idx_interview_answers_question ON interview_answers(question_id);
+        END IF;
+      END $$;
       CREATE INDEX IF NOT EXISTS idx_assessment_questions_assessment_id ON assessment_questions(assessment_id);
       CREATE INDEX IF NOT EXISTS idx_assessment_questions_question_id ON assessment_questions(question_id);
 

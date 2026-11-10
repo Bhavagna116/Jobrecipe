@@ -150,7 +150,7 @@ app.use((req, res, next) => {
     if (duration > SLOW_REQ_MS) {
       const dbMs = Math.round(dbCtx.totalMs);
       const dbPart = dbCtx.count > 0 ? ` (db ${dbMs}ms across ${dbCtx.count} queries)` : ' (no db queries)';
-      console.warn(`[SLOW REQ] ${req.method} ${req.originalUrl} - ${res.statusCode} in ${duration}ms${dbPart}`);
+      console.log(`[SLOW REQ] ${req.method} ${req.originalUrl} - ${res.statusCode} in ${duration}ms${dbPart}`);
     }
   });
 

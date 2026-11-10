@@ -2,15 +2,15 @@ import { pool, getDbStatus } from '../db/pool.js';
 import { fallbackCandidates } from '../mockFallback.js';
 import { resolveCollegeScope } from '../middleware/collegeScope.js';
 import { serverError } from '../utils/httpError.js';
-import { cacheDelete } from '../utils/shortCache.js';
+import { cacheGet, cacheSet, cacheDelete, cacheClear } from '../utils/shortCache.js';
 
-let candidatesCache = null;
-let lastCandidatesFetch = 0;
-const CACHE_TTL_MS = 3000;
+// The roster is expensive (aggregates over every submission). Cache it briefly
+// and serve repeat page loads from memory. Mutations clear the namespace.
+const CACHE_TTL_MS = Math.max(0, parseInt(process.env.CANDIDATES_CACHE_TTL_MS || '60000', 10));
+const ELIGIBILITY_CACHE_TTL_MS = Math.max(0, parseInt(process.env.COMPANY_ELIGIBILITY_CACHE_TTL_MS || '300000', 10));
 
 export const clearCandidatesCache = () => {
-  candidatesCache = null;
-  lastCandidatesFetch = 0;
+  cacheClear('candidates');
 };
 
 // GET /api/candidates
@@ -26,6 +26,12 @@ export const getAllCandidates = async (req, res) => {
     }
     const scopeClause = enforced ? 'AND COALESCE(cp.college_id, u.college_id) = $1' : '';
     const params = enforced ? [collegeId] : [];
+    const cacheKey = enforced ? `college:${collegeId}` : 'all';
+
+    if (CACHE_TTL_MS > 0) {
+      const cached = cacheGet('candidates', cacheKey);
+      if (cached) return res.json(cached);
+    }
 
     const result = await pool.query(`
       SELECT
@@ -89,9 +95,8 @@ export const getAllCandidates = async (req, res) => {
     `, params);
     const responsePayload = { success: true, data: result.rows, total: result.rowCount };
 
-    if (!enforced) {
-      candidatesCache = responsePayload;
-      lastCandidatesFetch = Date.now();
+    if (CACHE_TTL_MS > 0) {
+      cacheSet('candidates', cacheKey, responsePayload, CACHE_TTL_MS);
     }
 
     res.json(responsePayload);
@@ -340,8 +345,16 @@ export const getCandidateSubmissions = async (req, res) => {
 // GET /api/candidates/company-eligibility/criteria
 export const getCompanyEligibilityCriteria = async (req, res) => {
   try {
+    if (ELIGIBILITY_CACHE_TTL_MS > 0) {
+      const cached = cacheGet('companyEligibility', 'all');
+      if (cached) return res.json(cached);
+    }
     const result = await pool.query('SELECT * FROM company_eligibility_criteria ORDER BY company ASC, role ASC');
-    res.json({ success: true, data: result.rows });
+    const payload = { success: true, data: result.rows };
+    if (ELIGIBILITY_CACHE_TTL_MS > 0) {
+      cacheSet('companyEligibility', 'all', payload, ELIGIBILITY_CACHE_TTL_MS);
+    }
+    res.json(payload);
   } catch (err) {
     serverError(res, err, 'candidates.controller');
   }

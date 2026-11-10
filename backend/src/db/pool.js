@@ -22,8 +22,11 @@ const isLocalhost = Boolean(connectionString) && (connectionString.includes('loc
 const POOL_MIN = Math.max(0, parseInt(process.env.DATABASE_POOL_MIN || '2', 10));
 const POOL_MAX = Math.max(POOL_MIN, parseInt(process.env.DATABASE_POOL_MAX || '20', 10));
 const CONNECTION_TIMEOUT_MS = parseInt(process.env.DATABASE_CONNECTION_TIMEOUT || process.env.DB_CONNECTION_TIMEOUT || '10000', 10);
-const IDLE_TIMEOUT_MS = parseInt(process.env.DATABASE_IDLE_TIMEOUT || process.env.DB_IDLE_TIMEOUT || '60000', 10);
-const KEEPALIVE_MS = parseInt(process.env.DATABASE_KEEPALIVE_MS || '45000', 10);
+// node-postgres has no real `min` support, so connections are kept warm by the
+// keep-alive below. A long idle timeout stops the pool from closing them
+// between requests; the keep-alive interval must be shorter than this.
+const IDLE_TIMEOUT_MS = parseInt(process.env.DATABASE_IDLE_TIMEOUT || process.env.DB_IDLE_TIMEOUT || '300000', 10);
+const KEEPALIVE_MS = parseInt(process.env.DATABASE_KEEPALIVE_MS || '30000', 10);
 const SLOW_QUERY_MS = parseInt(process.env.SLOW_QUERY_MS || '250', 10);
 
 // TLS policy for remote database connections.
@@ -96,7 +99,7 @@ if (pool) {
         const text = typeof first === 'string'
           ? first
           : (first && typeof first === 'object' && typeof first.text === 'string' ? first.text : 'query');
-        console.warn(`[SLOW QUERY] ${ms.toFixed(0)}ms :: ${text.replace(/\s+/g, ' ').trim().slice(0, 180)}`);
+        console.log(`[SLOW QUERY] ${ms.toFixed(0)}ms :: ${text.replace(/\s+/g, ' ').trim().slice(0, 180)}`);
       }
     }
   };
@@ -135,18 +138,25 @@ let keepAliveTimer = null;
  * Ping an idle connection periodically so the upstream proxy does not silently
  * drop it. Uses a raw client so probes are not logged as slow queries.
  */
-export const startPoolKeepAlive = (intervalMs = KEEPALIVE_MS) => {
+export const startPoolKeepAlive = (intervalMs = Math.min(KEEPALIVE_MS, Math.max(5000, Math.floor(IDLE_TIMEOUT_MS / 3)))) => {
   if (!pool || keepAliveTimer || intervalMs <= 0) return;
   keepAliveTimer = setInterval(async () => {
-    if (pool.idleCount === 0) return;
-    let client;
+    // Keep at least POOL_MIN connections warm. The previous version skipped
+    // when the pool was empty, so after an idle period every request paid a
+    // cold connect (often 1–3s through the proxy).
+    const target = Math.max(1, Math.min(POOL_MIN || 1, POOL_MAX));
+    const clients = [];
     try {
-      client = await pool.connect();
-      await client.query('SELECT 1');
+      for (let i = 0; i < target; i++) {
+        clients.push(await pool.connect());
+      }
+      await Promise.all(clients.map(client => client.query('SELECT 1')));
     } catch (err) {
       console.warn('[DB keepalive] notice:', err.message);
     } finally {
-      try { client?.release(); } catch { /* noop */ }
+      clients.forEach((client) => {
+        try { client.release(); } catch { /* noop */ }
+      });
     }
   }, intervalMs);
   keepAliveTimer.unref?.();

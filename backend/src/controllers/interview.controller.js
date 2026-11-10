@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import prisma from '../db/prisma.js';
 import { pool } from '../db/pool.js';
 import { canReadCandidate } from '../middleware/ownership.js';
+import { cacheGet, cacheSet } from '../utils/shortCache.js';
 
 /**
  * Interview session ownership: a session belongs to a candidate user. Access is
@@ -1138,6 +1139,12 @@ export const completeInterview = async (req, res) => {
 export const getSessionAnalysis = async (req, res) => {
   try {
     const { id: sessionId } = req.params;
+    const analysisCacheKey = `${sessionId}|${req.user?.id || 'anon'}|${req.user?.role || 'anon'}`;
+    const ANALYSIS_CACHE_TTL_MS = Math.max(0, parseInt(process.env.INTERVIEW_ANALYSIS_CACHE_TTL_MS || '60000', 10));
+    if (ANALYSIS_CACHE_TTL_MS > 0) {
+      const cached = cacheGet('interviewAnalysis', analysisCacheKey);
+      if (cached) return res.json(cached);
+    }
 
     let analysis = null;
     try {
@@ -1165,11 +1172,9 @@ export const getSessionAnalysis = async (req, res) => {
         if (await sessionAccessDenied(req, session.userId)) {
           return res.status(403).json({ success: false, error: 'Access denied: this interview session belongs to another candidate.' });
         }
-        return res.json({
-          success: true,
-          analysis,
-          session
-        });
+        const payload = { success: true, analysis, session };
+        if (ANALYSIS_CACHE_TTL_MS > 0) cacheSet('interviewAnalysis', analysisCacheKey, payload, ANALYSIS_CACHE_TTL_MS);
+        return res.json(payload);
       }
     }
 
@@ -1181,11 +1186,13 @@ export const getSessionAnalysis = async (req, res) => {
       return res.status(403).json({ success: false, error: 'Access denied: this interview session belongs to another candidate.' });
     }
 
-    return res.json({
+    const payload = {
       success: true,
       analysis,
       session: analysis.session
-    });
+    };
+    if (ANALYSIS_CACHE_TTL_MS > 0) cacheSet('interviewAnalysis', analysisCacheKey, payload, ANALYSIS_CACHE_TTL_MS);
+    return res.json(payload);
   } catch (error) {
     console.error('Error fetching interview analysis:', error);
     const analysis = memoryAnalysis.get(req.params.id);
@@ -1229,6 +1236,11 @@ export const analyzeFrame = async (req, res) => {
  */
 export const getAdminSessions = async (req, res) => {
   try {
+    const ADMIN_SESSIONS_TTL_MS = Math.max(0, parseInt(process.env.INTERVIEW_ADMIN_SESSIONS_CACHE_TTL_MS || '30000', 10));
+    if (ADMIN_SESSIONS_TTL_MS > 0) {
+      const cached = cacheGet('interviewAdminSessions', 'all');
+      if (cached) return res.json(cached);
+    }
     const sessions = await prisma.interviewSession.findMany({
       include: {
         user: {
@@ -1271,11 +1283,13 @@ export const getAdminSessions = async (req, res) => {
       };
     });
 
-    return res.json({
+    const payload = {
       success: true,
       count: formatted.length,
       sessions: formatted
-    });
+    };
+    if (ADMIN_SESSIONS_TTL_MS > 0) cacheSet('interviewAdminSessions', 'all', payload, ADMIN_SESSIONS_TTL_MS);
+    return res.json(payload);
   } catch (err) {
     console.warn('Prisma getAdminSessions warning, falling back to memory sessions:', err.message);
     const sessions = Array.from(memorySessions.values()).reverse();

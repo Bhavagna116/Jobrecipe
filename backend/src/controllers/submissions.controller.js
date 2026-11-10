@@ -10,7 +10,7 @@ import {
   getProctoringEventsFallback
 } from '../mockFallback.js';
 import { serverError } from '../utils/httpError.js';
-import { cacheGet, cacheSet, cacheDelete } from '../utils/shortCache.js';
+import { cacheGet, cacheSet, cacheDelete, cacheClear } from '../utils/shortCache.js';
 
 // POST /api/submissions
 export const submitAssessment = async (req, res) => {
@@ -400,6 +400,7 @@ export const submitAssessment = async (req, res) => {
     // Scores changed: drop the cached /auth/me payload and submission list.
     cacheDelete('me', String(candidateId));
     cacheDelete('mySubmissions', String(candidateId));
+    cacheClear('candidates');
 
     res.status(200).json({
       success: true,
@@ -464,7 +465,7 @@ export const getAllSubmissions = async (req, res) => {
 };
 
 // GET /api/submissions/my  (candidate's own submissions)
-const MY_SUBMISSIONS_CACHE_TTL_MS = Math.max(0, parseInt(process.env.MY_SUBMISSIONS_CACHE_TTL_MS || '10000', 10));
+const MY_SUBMISSIONS_CACHE_TTL_MS = Math.max(0, parseInt(process.env.MY_SUBMISSIONS_CACHE_TTL_MS || '30000', 10));
 
 export const getMySubmissions = async (req, res) => {
   const candId = req.user?.id || '';

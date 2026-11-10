@@ -91,14 +91,21 @@ export const listPublicColleges = async (_req, res) => {
   if (!pool || !getDbStatus()) {
     return res.json({ success: true, data: [] });
   }
+  const CACHE_TTL_MS = Math.max(0, parseInt(process.env.PUBLIC_COLLEGES_CACHE_TTL_MS || '300000', 10));
   try {
+    if (CACHE_TTL_MS > 0) {
+      const cached = cacheGet('publicColleges', 'all');
+      if (cached) return res.json(cached);
+    }
     const result = await pool.query(
       `SELECT id, name, code, city, state
        FROM colleges
        WHERE status = 'active'
        ORDER BY name ASC`
     );
-    res.json({ success: true, data: result.rows });
+    const payload = { success: true, data: result.rows };
+    if (CACHE_TTL_MS > 0) cacheSet('publicColleges', 'all', payload, CACHE_TTL_MS);
+    res.json(payload);
   } catch (err) {
     console.error("listPublicColleges error:", err.message);
     res.json({ success: true, data: [] });
@@ -690,7 +697,7 @@ export const refreshToken = async (req, res) => {
 // GET /api/auth/me
 // The payload is fetched on every app load and costs one remote-DB round-trip.
 // Cache it briefly; profile / submission writes invalidate the entry explicitly.
-const ME_CACHE_TTL_MS = Math.max(0, parseInt(process.env.ME_CACHE_TTL_MS || '10000', 10));
+const ME_CACHE_TTL_MS = Math.max(0, parseInt(process.env.ME_CACHE_TTL_MS || '30000', 10));
 
 const sendMe = (res, cacheKey, payload) => {
   if (ME_CACHE_TTL_MS > 0) cacheSet('me', cacheKey, payload, ME_CACHE_TTL_MS);

@@ -2,9 +2,11 @@ import { pool, getDbStatus } from '../db/pool.js';
 import crypto from 'crypto';
 import { fallbackAssessments, fallbackQuestions, getMySubmissionsFallback } from '../mockFallback.js';
 import { serverError } from '../utils/httpError.js';
+import { cacheGet, cacheSet } from '../utils/shortCache.js';
 
 let assessmentsCache = null;
 let lastAssessmentsFetch = 0;
+const assessmentsScopedCache = new Map(); // scope key -> { value, expiresAt }
 const CACHE_TTL_MS = Math.max(0, parseInt(process.env.ASSESSMENTS_CACHE_TTL_MS || '120000', 10));
 
 // A single assessment can carry up to three interchangeable question-paper sets.
@@ -24,6 +26,7 @@ const normalizeSetCode = (value) => {
 export const clearAssessmentsCache = () => {
   assessmentsCache = null;
   lastAssessmentsFetch = 0;
+  assessmentsScopedCache.clear();
 };
 
 /**
@@ -33,6 +36,9 @@ export const clearAssessmentsCache = () => {
 export const resolveCollegeIdForUser = async (user) => {
   if (!user?.id || !pool || !getDbStatus()) return user?.college_id || null;
   if (user.college_id) return user.college_id;
+  const memoKey = String(user.id);
+  const cached = cacheGet('userCollege', memoKey);
+  if (cached !== undefined) return cached;
   try {
     const res = await pool.query(
       `SELECT college_id FROM users WHERE id = $1
@@ -40,7 +46,9 @@ export const resolveCollegeIdForUser = async (user) => {
        SELECT college_id FROM candidate_profiles WHERE id = $1 OR user_id = $1`,
       [user.id]
     );
-    return res.rows.map((r) => r.college_id).find(Boolean) || null;
+    const collegeId = res.rows.map((r) => r.college_id).find(Boolean) || null;
+    cacheSet('userCollege', memoKey, collegeId, 300000);
+    return collegeId;
   } catch (err) {
     console.warn('[assessments] college lookup failed:', err.message);
     return null;
@@ -139,6 +147,14 @@ export const getAllAssessments = async (req, res) => {
       userCollegeId = await resolveCollegeIdForUser(req.user);
     }
 
+    const cacheKey = `${req.user?.role || 'anon'}|${userCollegeId || 'none'}|${includeArchived ? 1 : 0}`;
+    if (CACHE_TTL_MS > 0) {
+      const hit = assessmentsScopedCache.get(cacheKey);
+      if (hit && hit.expiresAt > Date.now()) {
+        return res.json(hit.value);
+      }
+    }
+
     // The previous global cache was not scoped by college, so it could leak
     // assessments across tenants. Always query with the requester's scope.
     const queryParams = [];
@@ -209,7 +225,11 @@ export const getAllAssessments = async (req, res) => {
         collegeIds: Array.isArray(r.college_ids) ? r.college_ids : [],
       };
     });
-    res.json({ success: true, data: rows });
+    const payload = { success: true, data: rows };
+    if (CACHE_TTL_MS > 0) {
+      assessmentsScopedCache.set(cacheKey, { value: payload, expiresAt: Date.now() + CACHE_TTL_MS });
+    }
+    res.json(payload);
   } catch (err) {
     serverError(res, err, 'assessments.controller');
   }
