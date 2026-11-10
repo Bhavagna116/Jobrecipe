@@ -702,6 +702,9 @@ router.post('/evaluate-client', authenticateToken, async (req, res) => {
       questionId: primaryId || null,
       language,
       evaluation,
+      // Coding is worth 10 marks, awarded per test case and rounded.
+      earnedMarks: Math.min(10, Math.max(0, Math.round((evaluation.score / 100) * 10))),
+      maxMarks: 10,
       summary: {
         totalTests: evaluation.totalTests,
         passedTests: evaluation.passedTests,

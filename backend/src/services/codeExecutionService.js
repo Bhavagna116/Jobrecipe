@@ -322,7 +322,10 @@ export const executeSingleCode = async ({
   }
 
   const executor = (process.env.CODE_EXECUTOR || '').toLowerCase().trim();
-  const usePiston = executor === 'piston' || Boolean(process.env.PISTON_URL);
+  // Respect an explicit executor. Only fall back to Piston when no executor is
+  // configured but a Piston URL exists; a stray PISTON_URL must not make every
+  // Judge0 run attempt (and fail on) localhost first.
+  const usePiston = executor === 'piston' || (!executor && Boolean(process.env.PISTON_URL));
 
   try {
     if (usePiston) {

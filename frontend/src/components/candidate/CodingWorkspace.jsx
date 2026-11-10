@@ -127,12 +127,12 @@ solve();
 // to our backend for authoritative grading. Falls back to server execution.
 const JUDGE0_CE_URL = 'https://ce.judge0.com';
 const JUDGE0_LANG_IDS = {
-  python: 71,
-  javascript: 63,
-  cpp: 54,
-  java: 62,
-  c: 50,
-  typescript: 74
+  python: 100,
+  javascript: 97,
+  cpp: 105,
+  java: 91,
+  c: 103,
+  typescript: 101
 };
 
 const encodeB64 = (str) => {
@@ -389,6 +389,32 @@ export const CodingWorkspace = ({
     }
   };
 
+  // Switching language must save the new language + its own starter/code.
+  // Using handleCodeChange here would read the stale `selectedLanguage` and
+  // submit C++/Java code as Python (the compilation-error bug).
+  const handleLanguageChange = (newLang) => {
+    if (!newLang || newLang === selectedLanguage) return;
+    const nextCode = codeMap[newLang] || starterTemplates[newLang] || '';
+    setSelectedLanguage(newLang);
+    setCodeMap(prev => ({ ...prev, [newLang]: nextCode }));
+    setRunResults(null);
+
+    if (onSaveAnswer) {
+      onSaveAnswer({
+        language: newLang,
+        code: nextCode,
+        score: 0,
+        passedTests: 0,
+        totalTests: baseTestCases.length,
+        samplePassed: 0,
+        sampleTotal: 0,
+        hiddenPassed: 0,
+        hiddenTotal: 0,
+        verdict: null
+      });
+    }
+  };
+
   const handleResetCode = () => {
     if (window.confirm('Reset code to initial boilerplate template? Any changes in this language will be lost.')) {
       const template = starterTemplates[selectedLanguage] || DEFAULT_STARTER_CODES[selectedLanguage];
@@ -514,7 +540,7 @@ export const CodingWorkspace = ({
           ? baseTestCases
           : [{ id: 1, input: '' }];
         const clientResults = [];
-        setSubmissionProgress({ step: 'client', progress: 20, message: 'Running tests in your browser...' });
+        setSubmissionProgress({ step: 'client', progress: 20, message: 'Running test cases...' });
         for (let i = 0; i < cases.length; i++) {
           const tc = cases[i];
           const exec = await runOnJudge0(selectedLanguage, currentCode, tc.input ?? '');
@@ -530,7 +556,7 @@ export const CodingWorkspace = ({
           setSubmissionProgress({
             step: 'client',
             progress: 20 + Math.round(((i + 1) / cases.length) * 60),
-            message: `Ran ${i + 1}/${cases.length} tests in your browser...`
+            message: `Completed ${i + 1}/${cases.length} test cases...`
           });
         }
 
@@ -554,7 +580,7 @@ export const CodingWorkspace = ({
 
       // ── Fallback: direct synchronous server evaluation (authoritative) ──
       if (!res) {
-        setSubmissionProgress({ step: 'evaluating', progress: 60, message: 'Evaluating on the server...' });
+        setSubmissionProgress({ step: 'evaluating', progress: 60, message: 'Evaluating your solution...' });
         res = await api.code.evaluate(payload);
       }
 
@@ -696,7 +722,7 @@ export const CodingWorkspace = ({
     <div className={`flex flex-col transition-all duration-200 ${
       isFullscreen
         ? 'fixed inset-0 z-50 bg-[#1a1a1a] text-zinc-100 p-3 h-screen overflow-hidden'
-        : 'w-full rounded-2xl overflow-hidden border border-zinc-700/80 bg-[#1a1a1a] text-zinc-100 shadow-xl'
+        : 'w-full lg:h-[calc(100vh-185px)] min-h-[620px] rounded-2xl overflow-hidden border border-zinc-700/80 bg-[#1a1a1a] text-zinc-100 shadow-xl'
     }`}>
 
       {/* 1. LEETCODE TOP HEADER BAR */}
@@ -778,12 +804,12 @@ export const CodingWorkspace = ({
       </header>
 
       {/* 2. MAIN SPLIT SCREEN: LEFT PROBLEM DESCRIPTION, RIGHT MONACO STUDIO */}
-      <div className={`grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden ${
-        isFullscreen ? 'flex-1 h-[calc(100vh-100px)]' : 'min-h-[580px]'
+      <div className={`grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden flex-1 min-h-0 ${
+        isFullscreen ? 'h-[calc(100vh-100px)]' : ''
       }`}>
 
         {/* LEFT PANE (5 cols): Description / Editorial / Submissions */}
-        <div className="lg:col-span-5 bg-[#1e1e1e] border-r border-zinc-800 flex flex-col overflow-hidden">
+        <div className="lg:col-span-5 bg-[#1e1e1e] border-r border-zinc-800 flex flex-col overflow-hidden min-h-0">
 
           {/* Left Navigation Tabs */}
           <div className="px-3 pt-2 bg-[#262626] border-b border-zinc-800 flex items-center gap-1 text-xs">
@@ -831,7 +857,7 @@ export const CodingWorkspace = ({
 
           {/* Tab 1: Description Panel */}
           {leftTab === 'description' && (
-            <div className="p-5 overflow-y-auto flex-1 space-y-6 text-sm text-zinc-300 leading-relaxed">
+            <div className="p-4 overflow-y-auto flex-1 space-y-5 text-[13px] text-zinc-300 leading-relaxed">
 
               {/* Problem Title & Meta Header */}
               <div className="space-y-2">
@@ -999,7 +1025,7 @@ export const CodingWorkspace = ({
         </div>
 
         {/* RIGHT PANE (7 cols): Language Bar, Monaco Editor & Testcase Console */}
-        <div className="lg:col-span-7 bg-[#1a1a1a] flex flex-col overflow-hidden">
+        <div className="lg:col-span-7 bg-[#1a1a1a] flex flex-col overflow-hidden min-h-0">
 
           {/* Editor Language & Settings Topbar */}
           <div className="px-4 py-2 bg-[#262626] border-b border-zinc-800 flex items-center justify-between gap-3 text-xs">
@@ -1008,9 +1034,7 @@ export const CodingWorkspace = ({
               <select
                 value={selectedLanguage}
                 onChange={(e) => {
-                  const newLang = e.target.value;
-                  setSelectedLanguage(newLang);
-                  handleCodeChange(codeMap[newLang] || starterTemplates[newLang]);
+                  handleLanguageChange(e.target.value);
                 }}
                 className="bg-[#333333] hover:bg-[#3e3e3e] text-zinc-100 font-bold text-xs px-3 py-1.5 rounded-lg border border-zinc-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer transition-colors"
               >
@@ -1039,9 +1063,9 @@ export const CodingWorkspace = ({
           </div>
 
           {/* Monaco Editor Component */}
-          <div className="flex-1 relative bg-[#1e1e1e]">
+          <div className="flex-1 relative bg-[#1e1e1e] min-h-[320px] lg:min-h-0">
             <Editor
-              height={isConsoleOpen ? (isFullscreen ? 'calc(100vh - 380px)' : '380px') : (isFullscreen ? 'calc(100vh - 160px)' : '540px')}
+              height="100%"
               language={monacoLanguage}
               theme={editorTheme}
               value={currentCode}
@@ -1062,7 +1086,7 @@ export const CodingWorkspace = ({
 
           {/* 3. LEETCODE BOTTOM TESTCASE / RESULT CONSOLE DRAWER */}
           {isConsoleOpen && (
-            <div className="bg-[#202020] border-t border-zinc-800 flex flex-col h-[230px] overflow-hidden">
+            <div className="bg-[#202020] border-t border-zinc-800 flex flex-col h-[300px] shrink-0 overflow-hidden">
 
               {/* Console Tabs */}
               <div className="px-3 pt-1.5 bg-[#262626] border-b border-zinc-800 flex items-center justify-between text-xs">
@@ -1284,25 +1308,35 @@ export const CodingWorkspace = ({
 
                   {!isRunning && !isSubmitting && runResults?.evaluation && (
                     <div className="space-y-3">
-                      {/* LeetCode Result Banner */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-zinc-800">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`text-base font-extrabold flex items-center gap-1.5 ${
-                            runResults.evaluation.passed ? 'text-emerald-400' : 'text-rose-400'
-                          }`}>
-                            {runResults.evaluation.passed ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-                            {runResults.evaluation.verdict}
-                          </span>
-                          <span className="text-zinc-400 font-medium">
-                            ({runResults.evaluation.passedTests} / {runResults.evaluation.totalTests} testcases passed)
-                          </span>
+                      {/* Verdict banner */}
+                      <div className={`flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl border ${
+                        runResults.evaluation.passed
+                          ? 'bg-emerald-950/30 border-emerald-800/60'
+                          : 'bg-rose-950/30 border-rose-800/60'
+                      }`}>
+                        <div className="flex items-center gap-2.5">
+                          {runResults.evaluation.passed
+                            ? <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                            : <XCircle className="w-6 h-6 text-rose-400" />}
+                          <div>
+                            <div className={`text-sm font-extrabold ${runResults.evaluation.passed ? 'text-emerald-300' : 'text-rose-300'}`}>
+                              {runResults.evaluation.verdict || (runResults.evaluation.passed ? 'Accepted' : 'Not Accepted')}
+                            </div>
+                            <div className="text-[11px] text-zinc-400">
+                              {runResults.evaluation.passedTests} of {runResults.evaluation.totalTests} test cases passed
+                            </div>
+                          </div>
                         </div>
-
-                        <div className="flex items-center gap-3 text-zinc-400 font-mono text-[11px]">
-                          <span>Runtime: <strong className="text-zinc-200">{runResults.evaluation.testResults?.[0]?.timeMs || 52} ms</strong></span>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+                          <span className="px-2 py-1 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-300">
+                            Runtime {runResults.evaluation.testResults?.[0]?.timeMs || 0} ms
+                          </span>
                           {runResults.isOfficialSubmission && (
-                            <span className="text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                              Score: {runResults.evaluation.score}% ({runResults.earnedMarks}/{runResults.maxMarks} Mark{Number(runResults.maxMarks) === 1 ? '' : 's'})
+                            <span className="px-2 py-1 rounded-lg bg-indigo-950/60 border border-indigo-800 text-indigo-300 font-bold">
+                              Score {runResults.evaluation.score}%
+                              {Number(runResults.maxMarks) > 0
+                                ? ` · ${runResults.earnedMarks}/${runResults.maxMarks} Mark${Number(runResults.maxMarks) === 1 ? '' : 's'}`
+                                : ''}
                             </span>
                           )}
                         </div>
@@ -1403,6 +1437,12 @@ export const CodingWorkspace = ({
                         const tr = runResults.evaluation.testResults[selectedTestCaseIndex];
                         return (
                           <div className="space-y-2 font-mono text-xs">
+                            <div className="flex items-center justify-between text-[11px] font-sans font-bold text-zinc-400">
+                              <span>Test case {selectedTestCaseIndex + 1} details</span>
+                              <span className={tr.passed ? 'text-emerald-400' : 'text-rose-400'}>
+                                {tr.passed ? 'Passed' : (tr.status || 'Failed')}
+                              </span>
+                            </div>
                             {tr.stderr && (
                               <div className="p-2.5 bg-rose-950/40 border border-rose-800/60 text-rose-300 rounded-xl overflow-x-auto">
                                 <span className="text-[10px] font-sans font-bold uppercase block text-rose-400 mb-1">Standard Error</span>
@@ -1478,14 +1518,14 @@ export const CodingWorkspace = ({
           {/* 4. LEETCODE BOTTOM ACTION BAR */}
           <footer className="px-4 py-2.5 bg-[#262626] border-t border-zinc-800 flex items-center justify-between text-xs">
             {/* Left: Console Toggle Button */}
-            {/* <button
+            <button
               onClick={() => setIsConsoleOpen(prev => !prev)}
               className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 font-bold flex items-center gap-1.5 transition-colors border border-zinc-700"
             >
               <Terminal className="w-3.5 h-3.5 text-zinc-400" />
-              <span>Console</span>
+              <span>{isConsoleOpen ? 'Hide Console' : 'Show Console'}</span>
               {isConsoleOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-            </button> */}
+            </button>
 
             {/* Right: Run Code (Gray), Submit Code (Indigo/Emerald) and advance to next section (Emerald) */}
             <div className="flex items-center gap-2">
@@ -1522,25 +1562,6 @@ export const CodingWorkspace = ({
                 )}
                 <span>Submit Code</span>
               </button>
-
-              {/* Advance to the next section (or submit on the last one) */}
-              {onNextSection && (
-                <button
-                  onClick={onNextSection}
-                  disabled={isRunning || isSubmitting || nextBusy}
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white rounded-lg font-bold flex items-center gap-1.5 transition-all shadow-md shadow-emerald-600/25 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                  title={isLastSection ? 'Submit and finish the entire assessment' : 'Save your work and continue to the next section'}
-                >
-                  {nextBusy ? (
-                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : isLastSection ? (
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                  ) : (
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  )}
-                  <span>{isLastSection ? 'Submit Test' : 'Save & Continue to Next Section'}</span>
-                </button>
-              )}
             </div>
           </footer>
 

@@ -1416,7 +1416,7 @@ export const AssessmentPage = () => {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
             {/* MAIN QUESTION CARD / CODING WORKSPACE */}
-            <div className={`${currentQuestion?.type === 'Coding' ? 'lg:col-span-9' : 'lg:col-span-8'} flex flex-col justify-between space-y-6`}>
+            <div className={`${currentQuestion?.type === 'Coding' ? 'lg:col-span-12' : 'lg:col-span-8'} flex flex-col justify-between space-y-6`}>
               {currentQuestion?.type === 'Coding' ? (
                 <CodingWorkspace
                   question={currentQuestion}
@@ -1593,7 +1593,7 @@ export const AssessmentPage = () => {
             </div>
 
             {/* RIGHT SIDEBAR: CAMERA PREVIEW & QUESTION PALETTE */}
-            <div className={`${currentQuestion?.type === 'Coding' ? 'lg:col-span-3' : 'lg:col-span-4'} space-y-4`}>
+            <div className={`${currentQuestion?.type === 'Coding' ? 'hidden' : 'lg:col-span-4'} space-y-4`}>
 
               {/* Live Camera & Proctoring Status Widget — temporarily disabled */}
               {/*
@@ -1819,8 +1819,8 @@ export const AssessmentPage = () => {
                 To guarantee test integrity, this exam requires full-screen mode.
               </p>
               <ul className="list-disc list-inside mt-2 space-y-1 text-slate-700 font-semibold">
-                <li>Exiting full screen will issue a final warning. Exiting twice auto-submits the test.</li>
-                <li>Switching tabs or minimizing the browser will immediately auto-submit the exam.</li>
+                <li>Leaving full screen, switching tabs, or the window losing focus triggers a proctoring warning.</li>
+                <li>You get 3 separate warnings; the 3rd violation auto-submits your assessment.</li>
               </ul>
             </div>
           </div>
