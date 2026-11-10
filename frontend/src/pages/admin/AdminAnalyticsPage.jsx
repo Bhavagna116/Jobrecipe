@@ -103,6 +103,8 @@ export const AdminAnalyticsPage = () => {
       totalSubmissions: 0,
       avgScore: 0,
       avgAccuracy: 0,
+      candidatesPassed: 0,
+      candidatesJobReady: 0,
       passRate: 0,
       jobReadinessRate: 0,
       maxScore: 0,
@@ -230,10 +232,10 @@ export const AdminAnalyticsPage = () => {
       ['Metric', 'Value'],
       ['Candidates Tested', kpis.candidatesTested],
       ['Total Assessments Submitted', kpis.totalSubmissions],
-      ['Average Score (%)', `${kpis.avgScore}%`],
-      ['Average Accuracy (%)', `${kpis.avgAccuracy}%`],
-      ['Pass Rate (Score >= 65%)', `${kpis.passRate}%`],
-      ['Job Readiness Rate (Score >= 70%)', `${kpis.jobReadinessRate}%`],
+      ['Average Score (%) — mean marks obtained', `${kpis.avgScore}%`],
+      ['Average Accuracy (%) — correct ÷ attempted', `${kpis.avgAccuracy}%`],
+      ['Candidates Passing (score ≥ 65%)', `${kpis.candidatesPassed ?? 0} of ${kpis.candidatesTested} (${kpis.passRate}%)`],
+      ['Candidates Job-Ready (score ≥ 70%)', `${kpis.candidatesJobReady ?? 0} of ${kpis.candidatesTested} (${kpis.jobReadinessRate}%)`],
       ['Highest Score', `${kpis.maxScore}%`],
       ['Lowest Score', `${kpis.minScore}%`],
       [''],
@@ -250,7 +252,7 @@ export const AdminAnalyticsPage = () => {
       ...(analyticsData.weakestTopics || []).map(t => [t.topic, t.avgScore, t.failureRate, t.count]),
       [''],
       ['--- PER-COLLEGE PERFORMANCE ---'],
-      ['College', 'Candidates', 'Submissions', 'Average Score (%)', 'Pass Rate (%)', 'Job Readiness (%)'],
+      ['College', 'Candidates', 'Submissions', 'Average Score (%)', 'Pass Rate (% of candidates ≥65%)', 'Job Readiness (% of candidates ≥70%)'],
       ...(analyticsData.collegeBreakdown || []).map(c => [c.college, c.candidates, c.submissions, `${c.avgScore}%`, `${c.passRate}%`, `${c.jobReadinessRate}%`])
     ];
 
@@ -429,55 +431,84 @@ export const AdminAnalyticsPage = () => {
       ) : (
         /* TOP 4 LIVE KPIS */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-center gap-4 hover:border-brand-300 transition-colors">
-            <div className="w-12 h-12 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0">
-              <Users className="w-6 h-6" />
+          <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-start gap-4 hover:border-brand-300 transition-colors">
+            <div className="w-11 h-11 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0">
+              <Users className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Candidates Tested</span>
               <span className="text-2xl font-black text-slate-900">{kpis.candidatesTested.toLocaleString()}</span>
-              <span className="text-[10px] text-slate-500 block mt-0.5">
-                Across {kpis.totalSubmissions.toLocaleString()} attempts
+              <span className="text-[11px] text-slate-500 block mt-1 leading-snug">
+                Distinct candidates, across {kpis.totalSubmissions.toLocaleString()} attempts
               </span>
             </div>
           </div>
 
-          <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-center gap-4 hover:border-blue-300 transition-colors">
-            <div className="w-12 h-12 rounded-xl bg-blue-50 text-brand-600 flex items-center justify-center flex-shrink-0">
-              <TrendingUp className="w-6 h-6" />
+          <div
+            className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-start gap-4 hover:border-blue-300 transition-colors"
+            title="Average Score = mean of (marks obtained ÷ total marks) across attempts. Avg accuracy = correct answers ÷ attempted answers."
+          >
+            <div className="w-11 h-11 rounded-xl bg-blue-50 text-brand-600 flex items-center justify-center flex-shrink-0">
+              <TrendingUp className="w-5 h-5" />
             </div>
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Average Score</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Average Score</span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase">marks-based</span>
+              </div>
               <span className="text-2xl font-black text-slate-900">{kpis.avgScore}%</span>
-              <span className="text-[10px] text-slate-500 block mt-0.5">
-                Avg Accuracy: {kpis.avgAccuracy}%
+              <span className="text-[11px] text-slate-500 block mt-0.5 leading-snug">
+                Mean marks obtained across attempts
               </span>
+              <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Avg accuracy</span>
+                <span className="text-xs font-bold text-slate-700">{kpis.avgAccuracy}%</span>
+              </div>
+              <span className="text-[10px] text-slate-400 block mt-0.5">correct ÷ attempted (unanswered excluded)</span>
             </div>
           </div>
 
-          <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-center gap-4 hover:border-emerald-300 transition-colors">
-            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
-              <Target className="w-6 h-6" />
+          <div
+            className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-start gap-4 hover:border-emerald-300 transition-colors"
+            title="Share of distinct candidates whose best attempt scored at least 65%."
+          >
+            <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
+              <Target className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Assessment Pass Rate</span>
               <span className="text-2xl font-black text-emerald-600">{kpis.passRate}%</span>
-              <span className="text-[10px] text-slate-500 block mt-0.5">
-                Passing Benchmark ≥ 65%
+              <span className="text-[11px] text-slate-500 block mt-0.5 leading-snug">
+                Candidates with a score ≥ 65%
               </span>
+              <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Passed</span>
+                <span className="text-xs font-bold text-slate-700">
+                  {kpis.candidatesPassed ?? 0} of {kpis.candidatesTested}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-center gap-4 hover:border-purple-300 transition-colors">
-            <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center flex-shrink-0">
-              <Award className="w-6 h-6" />
+          <div
+            className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-start gap-4 hover:border-purple-300 transition-colors"
+            title="Share of distinct candidates whose best attempt scored at least 70%."
+          >
+            <div className="w-11 h-11 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center flex-shrink-0">
+              <Award className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Job Readiness Rate</span>
               <span className="text-2xl font-black text-purple-600">{kpis.jobReadinessRate}%</span>
-              <span className="text-[10px] text-slate-500 block mt-0.5">
-                Readiness Threshold ≥ 70%
+              <span className="text-[11px] text-slate-500 block mt-0.5 leading-snug">
+                Candidates with a score ≥ 70%
               </span>
+              <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Job-ready</span>
+                <span className="text-xs font-bold text-slate-700">
+                  {kpis.candidatesJobReady ?? 0} of {kpis.candidatesTested}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -638,8 +669,8 @@ export const AdminAnalyticsPage = () => {
                 <th className="py-3 px-4 text-right">Candidates</th>
                 <th className="py-3 px-4 text-right">Submissions</th>
                 <th className="py-3 px-4 text-right">Avg Score</th>
-                <th className="py-3 px-4 text-right">Pass Rate</th>
-                <th className="py-3 px-4 text-right">Job Readiness</th>
+                <th className="py-3 px-4 text-right" title="Share of candidates in this college with a score of at least 65%">Pass Rate (≥65%)</th>
+                <th className="py-3 px-4 text-right" title="Share of candidates in this college with a score of at least 70%">Job Readiness (≥70%)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">

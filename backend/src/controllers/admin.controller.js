@@ -115,8 +115,10 @@ export const getAnalytics = async (req, res) => {
         COUNT(*) as total_submissions,
         COALESCE(ROUND(AVG(s.score), 1), 0) as avg_score,
         COALESCE(ROUND(AVG(s.accuracy), 1), 0) as avg_accuracy,
-        COALESCE(ROUND(100.0 * COUNT(*) FILTER (WHERE s.score >= 65) / NULLIF(COUNT(*), 0), 1), 0) as pass_rate,
-        COALESCE(ROUND(100.0 * COUNT(*) FILTER (WHERE s.score >= 70) / NULLIF(COUNT(*), 0), 1), 0) as job_readiness_rate,
+        COUNT(DISTINCT s.candidate_id) FILTER (WHERE s.score >= 65) as candidates_passed,
+        COUNT(DISTINCT s.candidate_id) FILTER (WHERE s.score >= 70) as candidates_job_ready,
+        COALESCE(ROUND(100.0 * COUNT(DISTINCT s.candidate_id) FILTER (WHERE s.score >= 65) / NULLIF(COUNT(DISTINCT s.candidate_id), 0), 1), 0) as pass_rate,
+        COALESCE(ROUND(100.0 * COUNT(DISTINCT s.candidate_id) FILTER (WHERE s.score >= 70) / NULLIF(COUNT(DISTINCT s.candidate_id), 0), 1), 0) as job_readiness_rate,
         COALESCE(MAX(s.score), 0) as max_score,
         COALESCE(MIN(s.score), 0) as min_score
       FROM assessment_submissions s
@@ -214,8 +216,8 @@ export const getAnalytics = async (req, res) => {
         COUNT(DISTINCT s.candidate_id) as candidates,
         COUNT(*) as submissions,
         COALESCE(ROUND(AVG(s.score), 1), 0) as avg_score,
-        COALESCE(ROUND(100.0 * COUNT(*) FILTER (WHERE s.score >= 65) / NULLIF(COUNT(*), 0), 1), 0) as pass_rate,
-        COALESCE(ROUND(100.0 * COUNT(*) FILTER (WHERE s.score >= 70) / NULLIF(COUNT(*), 0), 1), 0) as job_readiness_rate
+        COALESCE(ROUND(100.0 * COUNT(DISTINCT s.candidate_id) FILTER (WHERE s.score >= 65) / NULLIF(COUNT(DISTINCT s.candidate_id), 0), 1), 0) as pass_rate,
+        COALESCE(ROUND(100.0 * COUNT(DISTINCT s.candidate_id) FILTER (WHERE s.score >= 70) / NULLIF(COUNT(DISTINCT s.candidate_id), 0), 1), 0) as job_readiness_rate
       FROM assessment_submissions s
       LEFT JOIN candidate_profiles cp ON s.candidate_id = cp.id OR s.candidate_id = cp.user_id OR LOWER(s.candidate_email) = LOWER(cp.email)
       LEFT JOIN colleges col ON col.id = s.college_id
@@ -252,6 +254,8 @@ export const getAnalytics = async (req, res) => {
       totalSubmissions: parseInt(kpiRow.total_submissions) || 0,
       avgScore: parseFloat(kpiRow.avg_score) || 0,
       avgAccuracy: parseFloat(kpiRow.avg_accuracy) || 0,
+      candidatesPassed: parseInt(kpiRow.candidates_passed) || 0,
+      candidatesJobReady: parseInt(kpiRow.candidates_job_ready) || 0,
       passRate: parseFloat(kpiRow.pass_rate) || 0,
       jobReadinessRate: parseFloat(kpiRow.job_readiness_rate) || 0,
       maxScore: parseInt(kpiRow.max_score) || 0,
