@@ -491,6 +491,40 @@ export const resetCandidateAttempt = async (req, res) => {
     // can actually retake the assessment.
     let deletedAttempts = 0;
     if (targetIds.length > 0) {
+      // Preserve the paper sets of the attempts we're about to delete so the
+      // candidate's next retake still avoids repeating a set. This also
+      // backfills attempts created before the history table existed.
+      try {
+        await client.query('SAVEPOINT set_history_backfill');
+        if (assessmentId && assessmentId !== 'all') {
+          await client.query(
+            `INSERT INTO candidate_set_history (id, candidate_id, assessment_id, set_code, created_at)
+             SELECT 'csh-' || md5(random()::text || clock_timestamp()::text || id),
+                    candidate_id, assessment_id, set_code, created_at
+             FROM test_attempts
+             WHERE candidate_id = ANY($1::varchar[])
+               AND assessment_id = $2::varchar
+               AND set_code IS NOT NULL`,
+            [targetIds, assessmentId]
+          );
+        } else {
+          await client.query(
+            `INSERT INTO candidate_set_history (id, candidate_id, assessment_id, set_code, created_at)
+             SELECT 'csh-' || md5(random()::text || clock_timestamp()::text || id),
+                    candidate_id, assessment_id, set_code, created_at
+             FROM test_attempts
+             WHERE candidate_id = ANY($1::varchar[])
+               AND set_code IS NOT NULL`,
+            [targetIds]
+          );
+        }
+        await client.query('RELEASE SAVEPOINT set_history_backfill');
+      } catch (historyErr) {
+        await client.query('ROLLBACK TO SAVEPOINT set_history_backfill').catch(() => {});
+        await client.query('RELEASE SAVEPOINT set_history_backfill').catch(() => {});
+        console.warn('Could not backfill set history on reset:', historyErr.message);
+      }
+
       if (assessmentId && assessmentId !== 'all') {
         const delTa = await client.query(
           `DELETE FROM test_attempts

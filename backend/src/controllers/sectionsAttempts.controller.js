@@ -456,9 +456,12 @@ export const startAssessmentAttempt = async (req, res) => {
         try {
           await client.query('SAVEPOINT set_history_read');
           const historyRes = await client.query(
-            `SELECT set_code FROM candidate_set_history
+            `SELECT set_code, MAX(created_at) AS last_used
+             FROM candidate_set_history
              WHERE candidate_id = $1 AND assessment_id = $2
-             ORDER BY created_at DESC LIMIT $3`,
+             GROUP BY set_code
+             ORDER BY last_used DESC
+             LIMIT $3`,
             [candidateId, assessmentId, allowedCodes.length - 1]
           );
           await client.query('RELEASE SAVEPOINT set_history_read');
