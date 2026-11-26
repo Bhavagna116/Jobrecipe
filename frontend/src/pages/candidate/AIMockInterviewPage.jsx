@@ -152,7 +152,7 @@ function describeMediaError(err) {
 
 export const AIMockInterviewPage = () => {
   const navigate = useNavigate();
-  const { navigateTo, currentUser, role, adminUser, candidateSubmissions, assessments, isAssessmentCompleted, addToast, startAssessment, isInterviewUnlocked, interviewSettings } = useApp();
+  const { navigateTo, currentUser, role, adminUser, candidateSubmissions, assessments, isAssessmentCompleted, addToast, startAssessment, isInterviewUnlocked, interviewSettings, stopMediaStream } = useApp();
 
   // The interviewer is always the opposite gender of the candidate:
   // male candidate -> female interviewer, female candidate -> male interviewer.
@@ -209,7 +209,13 @@ export const AIMockInterviewPage = () => {
   }, [currentUser?.id]);
 
   // 1. Stage State: 'setup' (Picture 1) -> 'room' (Picture 2) -> Report
-  const [stage, setStage] = useState('setup');
+  const [stage, setStage] = useState(() => {
+    try {
+      return localStorage.getItem('rsj_auto_start_interview') === 'true' ? 'room' : 'setup';
+    } catch {
+      return 'setup';
+    }
+  });
 
   // 2. Role and Resume ATS Data
   const [targetRole, setTargetRole] = useState(() => {
@@ -377,7 +383,10 @@ export const AIMockInterviewPage = () => {
 
     setWarningCount((prevCount) => {
       const newCount = prevCount + 1;
-      const maxWarnings = Math.max(1, Number(adminSettings?.maxWarnings) || 3);
+      const maxWarnings = 3;
+      try {
+        localStorage.setItem('rsj_pipeline_proctor_strikes', String(newCount));
+      } catch { }
       const logEntry = {
         number: newCount,
         reason: violationReason,
@@ -770,22 +779,22 @@ export const AIMockInterviewPage = () => {
     sessionStartTimeRef.current = Date.now();
 
     const handleFullscreenChange = () => {
-      // 1.5s grace period on session start so entering fullscreen doesn't false-trigger
-      if (Date.now() - sessionStartTimeRef.current < 1500) return;
+      // 5s grace period on session start so entering fullscreen doesn't false-trigger
+      if (Date.now() - sessionStartTimeRef.current < 5000) return;
       if (!document.fullscreenElement && !proctoringModal) {
         triggerProctoringViolation('Exited Fullscreen Mode');
       }
     };
 
     const handleVisibilityChange = () => {
-      if (Date.now() - sessionStartTimeRef.current < 1500) return;
+      if (Date.now() - sessionStartTimeRef.current < 5000) return;
       if (document.hidden && !proctoringModal) {
         triggerProctoringViolation('Switched Tabs / Browser Minimized');
       }
     };
 
     const handleWindowBlur = () => {
-      if (Date.now() - sessionStartTimeRef.current < 1500) return;
+      if (Date.now() - sessionStartTimeRef.current < 5000) return;
       if (!proctoringModal) {
         triggerProctoringViolation('Switched Tabs / Window Lost Focus');
       }
@@ -797,16 +806,24 @@ export const AIMockInterviewPage = () => {
       return e.returnValue;
     };
 
+    const handleContextMenu = (e) => {
+      e.preventDefault();
+      if (addToast) addToast('Right-click is disabled during the interview.', 'warning');
+      return false;
+    };
+
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleWindowBlur);
     window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('contextmenu', handleContextMenu);
     };
   }, [sessionActive, proctoringModal]);
 
@@ -1014,18 +1031,38 @@ export const AIMockInterviewPage = () => {
   // ==========================================
   const startCamera = async () => {
     try {
+      // Release any prior camera stream held by AssessmentPage before acquiring
+      if (typeof stopMediaStream === 'function') {
+        stopMediaStream();
+      }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
+
+      let stream = null;
+      const attempts = [
+        {
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
         },
-      });
+        { video: true, audio: true },
+        { video: true, audio: false },
+      ];
+
+      let lastErr = null;
+      for (const constraints of attempts) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream) break;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+
+      if (!stream) {
+        throw lastErr || new Error('Could not access camera');
+      }
+
       mediaStreamRef.current = stream;
       setCameraActive(true);
       setIsTestingCamera(true);
@@ -1042,12 +1079,23 @@ export const AIMockInterviewPage = () => {
         }
       }
     } catch (err) {
-      console.warn('Camera preview notice:', err.message);
+      console.warn('Camera preview notice:', err?.message);
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError' || err?.name === 'NotFoundError' || err?.name === 'NotReadableError') {
         setMicError(describeMediaError(err));
       }
     }
   };
+
+  // Ensure <video> element always binds to live mediaStreamRef whenever room mounts
+  useEffect(() => {
+    if (stage === 'room' && cameraActive && mediaStreamRef.current && videoRef.current) {
+      if (videoRef.current.srcObject !== mediaStreamRef.current) {
+        videoRef.current.srcObject = mediaStreamRef.current;
+        videoRef.current.muted = true;
+        videoRef.current.play().then(() => setVideoPlayBlocked(false)).catch(() => {});
+      }
+    }
+  }, [stage, cameraActive, sessionActive]);
 
   const stopCamera = () => {
     stopAudioNoiseMonitoring();
@@ -2211,20 +2259,24 @@ export const AIMockInterviewPage = () => {
     }
   };
 
-  // Engine selection: Sarvam Batch STT (primary), Browser Web Speech (fallback).
-  // An answer is recorded as one or two ~29s clips (under Sarvam's 30s limit)
-  // and transcribed as each clip closes. The streaming WebSocket path is
-  // intentionally disabled.
+  // Engine selection: Prefer live Browser Web Speech API when supported (instant
+  // real-time transcription with zero external API dependency), falling back to
+  // Sarvam Batch STT when Web Speech is unavailable.
   const startSpeechRecognition = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      ensureAudioStream().catch(() => {});
+      startBrowserSpeechRecognition();
+      return;
+    }
+
     const MediaRecorder = window.MediaRecorder;
     const canRecordAudio = Boolean(MediaRecorder && navigator.mediaDevices?.getUserMedia);
-
     if (canRecordAudio) {
-      // Primary: Sarvam Batch STT (MediaRecorder + POST /api/stt/transcribe)
       startSarvamRecording();
       return;
     }
-    // Fallback: Browser Web Speech API
+
     startBrowserSpeechRecognition();
   };
 
@@ -2811,7 +2863,15 @@ export const AIMockInterviewPage = () => {
       setCurrentQIndex(0);
       setTimerSeconds(0);
       setAnswersList([]);
-      setWarningCount(0);
+      const carriedStrikes = (() => {
+        try {
+          const val = parseInt(localStorage.getItem('rsj_pipeline_proctor_strikes') || '0', 10);
+          return Number.isFinite(val) && val > 0 ? Math.min(2, val) : 0;
+        } catch {
+          return 0;
+        }
+      })();
+      setWarningCount(carriedStrikes);
       setActiveWarningMessage('');
       setCompanionText('');
       accumulatedTranscriptRef.current = '';
@@ -2865,15 +2925,19 @@ export const AIMockInterviewPage = () => {
           videoRef.current && videoRef.current.readyState >= 2
         );
 
-        // Face + gaze detection
+        // Face + gaze detection & facial expression capturing
         let faceStatus = 'unknown';
         let faceCount = 0;
+        let expressionDetected = 'Neutral';
         if (faceLandmarkerRef.current && canReadVideo) {
           try {
             const results = faceLandmarkerRef.current.detectForVideo(videoRef.current, performance.now());
             const classified = classifyFrame(results);
             faceStatus = classified.status;
             faceCount = classified.faceCount || 0;
+            if (classified.expression) {
+              expressionDetected = classified.expression;
+            }
 
             if (faceCount > 0) stats.facePresent += 1;
             if (faceStatus === 'face_ok') stats.gazeCentered += 1;
@@ -2932,7 +2996,7 @@ export const AIMockInterviewPage = () => {
         const currentEmotion = objectState.phoneDetected || objectState.personCount >= 2
           ? 'Distracted'
           : faceStatus === 'face_ok'
-            ? 'Focused'
+            ? expressionDetected
             : faceStatus === 'no_face'
               ? 'Away'
               : 'Neutral';
@@ -3005,10 +3069,123 @@ export const AIMockInterviewPage = () => {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  // Auto-start interview when redirected immediately from a submitted assessment
+  const autoStartFiredRef = useRef(false);
+  const pendingAutoStartRef = useRef(false);
+  useEffect(() => {
+    const shouldAutoStart = localStorage.getItem('rsj_auto_start_interview') === 'true';
+    if ((shouldAutoStart || pendingAutoStartRef.current) && !sessionActive) {
+      pendingAutoStartRef.current = true;
+      // Ensure old report/completion flags are cleared so interview starts fresh
+      setIsReportReady(false);
+      setIsInterviewCompleted(false);
+      try {
+        localStorage.removeItem('rsj_interview_completed');
+        localStorage.removeItem('rsj_latest_interview_analysis');
+      } catch { }
+
+      // Transition to room stage immediately
+      setStage('room');
+
+      // Turn on camera & mic right away
+      if (!mediaStreamRef.current) {
+        startCamera();
+      }
+
+      // If candidate has no custom uploaded resume yet, populate their candidate profile resume so questions are tailored
+      if (!uploadedFileName && !rawResumeText) {
+        const candName = currentUser?.name || currentUser?.fullName || 'Candidate';
+        const candBranch = currentUser?.branch || 'Computer Science';
+        const candDegree = currentUser?.degree || 'B.Tech';
+        const candSkills = ['Python', 'Data Structures', 'SQL', 'Algorithms', 'Web Development', 'React', 'Git'];
+        const autoResume = `${candName} - Software Engineer\nEducation: ${candDegree} in ${candBranch}\nSkills: ${candSkills.join(', ')}\nProjects:\n• Full-Stack Application: Designed and built scalable web services using ${candSkills.slice(0, 3).join(', ')}.\n• Algorithmic Problem Solver: Implemented efficient data structures and algorithms in Python.`;
+        processResumeContent(`${candName.replace(/\s+/g, '_')}_Resume.pdf`, autoResume, targetRole || 'Software Engineer');
+      }
+    }
+  }, [currentUser?.id, sessionActive, uploadedFileName, rawResumeText, targetRole]);
+
+  // Launch session once stage is 'room' and resume-tailored questions are ready
+  useEffect(() => {
+    if ((pendingAutoStartRef.current || localStorage.getItem('rsj_auto_start_interview') === 'true') && stage === 'room' && !sessionActive && !autoStartFiredRef.current && questions && questions.length > 0) {
+      const timer = setTimeout(() => {
+        if (autoStartFiredRef.current) return;
+        autoStartFiredRef.current = true;
+        pendingAutoStartRef.current = false;
+        try {
+          localStorage.removeItem('rsj_auto_start_interview');
+        } catch { }
+        handleStartSession();
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [stage, sessionActive, questions]);
+
   // ==========================================
-  // VIEW 1: FINAL EVALUATION REPORT
+  // VIEW 1: POST-INTERVIEW THANK YOU (ADMIN-ONLY SCORES)
   // ==========================================
   if (isReportReady) {
+    if (!isAdmin) {
+      return (
+        <div className="min-h-screen w-full bg-slate-50 flex items-center justify-center p-4 sm:p-8">
+          <div className="max-w-lg w-full bg-white border border-slate-200/90 rounded-3xl shadow-xl p-8 sm:p-10 text-center space-y-6 animate-in fade-in zoom-in-95 duration-300">
+            <div className="w-20 h-20 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto shadow-sm">
+              <CheckCircle2 className="w-11 h-11" />
+            </div>
+
+            <div className="space-y-2.5">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+                <span>Evaluation Submitted</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                Thanks for Submitting!
+              </h1>
+              <p className="text-sm sm:text-base font-bold text-slate-800">
+                You will receive a mail with your results.
+              </p>
+              <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                Your assessment rounds and AI Mock Interview have been securely recorded. Detailed scores and evaluation reports are reviewed in the Admin Portal and will be sent to{' '}
+                <strong className="text-slate-700">{currentUser?.email || 'your registered email'}</strong>.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 text-left space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 font-medium">Candidate</span>
+                <span className="font-bold text-slate-800">{currentUser?.name || 'Candidate'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 font-medium">Status</span>
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[11px]">
+                  Completed &amp; Under Review
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 font-medium">Result Delivery</span>
+                <span className="font-semibold text-brand-700">Via Email</span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => navigateTo('assessments')}
+                className="flex-1 py-3 px-5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm"
+              >
+                Back to Assessments
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateTo('dashboard')}
+                className="flex-1 py-3 px-5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Go to Dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     const effectiveAnswers = (answersList && answersList.length > 0)
       ? answersList
       : ((finalAnalysis?.questionBreakdown && finalAnalysis.questionBreakdown.length > 0)
@@ -3362,8 +3539,11 @@ export const AIMockInterviewPage = () => {
     isAdmin ||
     hasCompletedAllMixInList ||
     hasCompletedAllMixSub ||
-    (totalRequiredCount > 0 && completedCount === totalRequiredCount) ||
-    (totalRequiredCount === 1 && completedCount >= 1)
+    (typeof window !== 'undefined' && (
+      localStorage.getItem('rsj_interview_unlocked_by_test') === 'true' &&
+      localStorage.getItem('rsj_all_assessments_completed') === 'true'
+    )) ||
+    (totalRequiredCount > 0 && completedCount >= totalRequiredCount)
   );
   const completionPercentage = totalRequiredCount > 0 ? Math.round((completedCount / totalRequiredCount) * 100) : 0;
 
@@ -4346,11 +4526,17 @@ export const AIMockInterviewPage = () => {
 
             {/* Live overlay HUD when session is active */}
             {sessionActive && (
-              <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between pointer-events-none z-10">
+              <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between pointer-events-none z-10 flex-wrap gap-1">
                 <div className="px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-mono text-emerald-400 flex items-center gap-1">
                   <Eye className="w-3 h-3" />
                   <span>Gaze: {telemetry.eyeContact}%</span>
                 </div>
+                {telemetry.emotion && telemetry.emotion !== 'Pending' && (
+                  <div className="px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-md border border-brand-400/30 text-[10px] font-mono text-cyan-200 flex items-center gap-1">
+                    <Smile className="w-3 h-3 text-cyan-400" />
+                    <span>{telemetry.emotion}</span>
+                  </div>
+                )}
                 <div className="px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-mono text-cyan-300 flex items-center gap-1">
                   <Activity className="w-3 h-3" />
                   <span>Time: {formatTimer(timerSeconds)}</span>

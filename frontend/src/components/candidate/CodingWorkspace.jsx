@@ -192,10 +192,15 @@ const runOnJudge0 = async (language, sourceCode, stdin, timeoutMs = 12000) => {
 
 export const CodingWorkspace = ({
   question,
+  questionIndex = 0,
+  totalQuestions = 1,
+  onSelectQuestion,
+  onPrevQuestion,
   savedAnswer,
   onSaveAnswer,
   onNextSection,
   isLastSection = false,
+  isLastQuestion = true,
   nextBusy = false,
   addToast
 }) => {
@@ -727,13 +732,33 @@ export const CodingWorkspace = ({
 
       {/* 1. LEETCODE TOP HEADER BAR */}
       <header className="px-4 py-2.5 bg-[#262626] border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-        {/* Left: Problem Title & Status */}
-        <div className="flex items-center gap-3">
+        {/* Left: Problem Title, Question Switcher & Status */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {totalQuestions > 1 && (
+            <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
+              {Array.from({ length: totalQuestions }).map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => onSelectQuestion && onSelectQuestion(i)}
+                  className={`px-2 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
+                    i === questionIndex
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+                  }`}
+                  title={`Go to Coding Question ${i + 1}`}
+                >
+                  Q{i + 1}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="font-bold text-zinc-200 text-sm tracking-tight flex items-center gap-1.5">
               <Code2 className="w-4 h-4 text-emerald-400" />
-              <span>{problemTitle ? problemTitle.slice(0, 48) : 'Coding Challenge'}</span>
+              <span>{problemTitle ? problemTitle.slice(0, 40) : 'Coding Challenge'}</span>
             </span>
           </div>
 
@@ -782,22 +807,38 @@ export const CodingWorkspace = ({
             {isFullscreen ? <Minimize2 className="w-4 h-4 text-emerald-400" /> : <Maximize2 className="w-4 h-4" />}
           </button>
 
-          {/* Section advance button (always accessible, especially in Fullscreen) */}
+          {/* Previous question button */}
+          {onPrevQuestion && (
+            <button
+              onClick={onPrevQuestion}
+              disabled={nextBusy}
+              className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold rounded-lg flex items-center gap-1 transition-all text-xs cursor-pointer"
+              title="Go to previous coding question"
+            >
+              <span>← Prev</span>
+            </button>
+          )}
+
+          {/* Question / Section advance button (always accessible, especially in Fullscreen) */}
           {onNextSection && (
             <button
               onClick={onNextSection}
               disabled={nextBusy}
-              className="ml-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold rounded-lg flex items-center gap-1.5 transition-all text-xs shadow-md shadow-emerald-900/40 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              title={isLastSection ? 'Submit and finish the entire assessment' : 'Save your work and continue to the next section'}
+              className="ml-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold rounded-lg flex items-center gap-1.5 transition-all text-xs shadow-md shadow-emerald-900/40 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              title={!isLastQuestion ? 'Save and move to next coding question' : (isLastSection ? 'Submit and finish the entire assessment' : 'Save your work and continue to the next section')}
             >
               {nextBusy ? (
                 <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : isLastSection ? (
+              ) : (isLastQuestion && isLastSection) ? (
                 <CheckCircle2 className="w-3.5 h-3.5" />
               ) : (
                 <ArrowRight className="w-3.5 h-3.5" />
               )}
-              <span>{isLastSection ? 'Submit Test' : 'Next Section'}</span>
+              <span>
+                {!isLastQuestion
+                  ? `Next Question (${questionIndex + 2}/${totalQuestions})`
+                  : (isLastSection ? 'Submit Test' : 'Next Section')}
+              </span>
             </button>
           )}
         </div>
@@ -1586,9 +1627,11 @@ export const CodingWorkspace = ({
             </div>
 
             <p className="text-xs text-zinc-300 leading-relaxed">
-              {isLastSection
-                ? 'Your solution for this question has been graded and recorded. Would you like to submit the assessment now, or continue reviewing and testing?'
-                : 'Your solution for this question has been graded and recorded. Would you like to save your work and continue to the next section, or keep reviewing and testing?'}
+              {!isLastQuestion
+                ? `Your solution for Question ${questionIndex + 1} has been graded and recorded. Would you like to move to Question ${questionIndex + 2} of ${totalQuestions}, or keep reviewing?`
+                : isLastSection
+                  ? 'Your solution for this question has been graded and recorded. Would you like to submit the assessment now, or continue reviewing and testing?'
+                  : 'Your solution for this question has been graded and recorded. Would you like to save your work and continue to the next section, or keep reviewing and testing?'}
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -1607,8 +1650,12 @@ export const CodingWorkspace = ({
                 }}
                 className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-all cursor-pointer"
               >
-                {isLastSection ? <CheckCircle2 className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
-                <span>{isLastSection ? 'Submit Test' : 'Save & Continue to Next Section'}</span>
+                {(isLastQuestion && isLastSection) ? <CheckCircle2 className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
+                <span>
+                  {!isLastQuestion
+                    ? `Save & Continue to Q${questionIndex + 2}`
+                    : (isLastSection ? 'Submit Test' : 'Save & Continue to Next Section')}
+                </span>
               </button>
             </div>
           </div>

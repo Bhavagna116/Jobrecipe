@@ -1,4 +1,5 @@
-import { pool } from '../db/pool.js';
+import { pool, getDbStatus } from '../db/pool.js';
+import { fallbackQuestions } from '../mockFallback.js';
 import { evaluateCodeAgainstTestCases } from '../services/codeExecutionService.js';
 
 /**
@@ -27,30 +28,42 @@ export const processSubmission = async (jobData, updateProgress = async () => {}
     throw new Error('questionId, language, and sourceCode are required.');
   }
 
-  // 1. Fetch authoritative test cases from questions table
-  let qRes = await pool.query(
-    `SELECT id, type, question, options, test_cases, marks, time_limit_sec
-     FROM questions
-     WHERE id = $1 OR id = $2`,
-    [primaryId, secondaryId]
-  );
+  let question = null;
 
-  let question = qRes.rows[0];
-
-  // 2. If not found directly, check assessment_questions table
-  if (!question) {
-    const aqRes = await pool.query(
-      `SELECT aq.id, aq.question_id, q.type, q.question, aq.options,
-              COALESCE(aq.test_cases, q.test_cases) as test_cases,
-              aq.marks, q.time_limit_sec
-       FROM assessment_questions aq
-       LEFT JOIN questions q ON aq.question_id = q.id
-       WHERE aq.id = $1 OR aq.question_id = $1 OR aq.id = $2 OR aq.question_id = $2`,
+  if (pool && getDbStatus()) {
+    // 1. Fetch authoritative test cases from questions table
+    const qRes = await pool.query(
+      `SELECT id, type, question, options, test_cases, marks, time_limit_sec
+       FROM questions
+       WHERE id = $1 OR id = $2`,
       [primaryId, secondaryId]
     );
-    if (aqRes.rows.length > 0) {
-      question = aqRes.rows[0];
+    question = qRes.rows[0];
+
+    // 2. If not found directly, check assessment_questions table
+    if (!question) {
+      const aqRes = await pool.query(
+        `SELECT aq.id, aq.question_id, q.type, q.question, aq.options,
+                COALESCE(aq.test_cases, q.test_cases) as test_cases,
+                aq.marks, q.time_limit_sec
+         FROM assessment_questions aq
+         LEFT JOIN questions q ON aq.question_id = q.id
+         WHERE aq.id = $1 OR aq.question_id = $1 OR aq.id = $2 OR aq.question_id = $2`,
+        [primaryId, secondaryId]
+      );
+      if (aqRes.rows.length > 0) {
+        question = aqRes.rows[0];
+      }
     }
+  }
+
+  // Fallback to curated questions when running without PostgreSQL
+  if (!question) {
+    question = fallbackQuestions.find(
+      (q) =>
+        String(q.id).toLowerCase() === String(primaryId).toLowerCase() ||
+        String(q.id).toLowerCase() === String(secondaryId).toLowerCase()
+    ) || null;
   }
 
   let testCases = [];

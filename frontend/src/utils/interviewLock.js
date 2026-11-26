@@ -35,7 +35,16 @@ export function isInterviewLocked({ role, adminUser, assessments, candidateSubmi
   if (interviewHardLocked) return true;
   if (interviewOpenForAll) return false;
 
+  // If candidate completed all 4 rounds in the pipeline or test completed flag is set
+  if (typeof window !== 'undefined' && (
+    localStorage.getItem('rsj_interview_unlocked_by_test') === 'true' &&
+    localStorage.getItem('rsj_all_assessments_completed') === 'true'
+  )) {
+    return false;
+  }
+
   const list = getActiveAssessments(assessments);
   const completed = list.filter((asm) => checkAssessmentCompleted(asm, { isAssessmentCompleted, candidateSubmissions })).length;
-  return !(list.length > 0 && completed === list.length);
+  // All rounds in the pipeline must be completed
+  return !(list.length > 0 && completed >= list.length);
 }

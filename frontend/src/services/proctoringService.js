@@ -5,7 +5,7 @@ export const YAW_THRESHOLD = 35;    // Max degrees turn left/right before 'looki
 export const PITCH_THRESHOLD = 30;  // Max degrees tilt up/down before 'looking_away'
 export const GRACE_PERIOD_MS = 3000; // Continuous violation duration before firing strike (3 seconds)
 export const DETECTION_INTERVAL_MS = 500; // Interval between frames (0.5 seconds)
-export const MAX_ALLOWED_STRIKES = 5; // 5 warnings before auto-submission
+export const MAX_ALLOWED_STRIKES = 3; // 3 cumulative warnings across all rounds before auto-submission
 
 // Object-detection thresholds (MediaPipe EfficientDet-Lite0)
 export const PHONE_CONFIDENCE_THRESHOLD = 0.35;
@@ -162,6 +162,62 @@ export const extractBlendshapes = (faceBlendshapeObj) => {
     }
   }
   return map;
+};
+
+/**
+ * Detect facial expressions and emotional cues from MediaPipe face blendshapes.
+ * Returns expression scores, dominant expression, and confidence.
+ */
+export const detectFacialExpressions = (blendshapeObj) => {
+  const shapes = extractBlendshapes(blendshapeObj);
+
+  // Blendshape markers:
+  // Smile / Happy: mouthSmileLeft, mouthSmileRight, cheekSquintLeft, cheekSquintRight
+  const smileLeft = shapes.mouthSmileLeft || 0;
+  const smileRight = shapes.mouthSmileRight || 0;
+  const smileScore = (smileLeft + smileRight) / 2;
+
+  // Surprise / Attentive: browInnerUp, eyeWideLeft, eyeWideRight, jawOpen
+  const browInnerUp = shapes.browInnerUp || 0;
+  const eyeWide = ((shapes.eyeWideLeft || 0) + (shapes.eyeWideRight || 0)) / 2;
+  const jawOpen = shapes.jawOpen || 0;
+  const surpriseScore = (browInnerUp * 0.4 + eyeWide * 0.4 + jawOpen * 0.2);
+
+  // Thinking / Perplexed / Frown: browDownLeft, browDownRight, mouthFrownLeft, mouthFrownRight
+  const browDown = ((shapes.browDownLeft || 0) + (shapes.browDownRight || 0)) / 2;
+  const mouthFrown = ((shapes.mouthFrownLeft || 0) + (shapes.mouthFrownRight || 0)) / 2;
+  const thinkingScore = (browDown * 0.6 + mouthFrown * 0.4);
+
+  // Confidence / Composure: steady smile or composed brow, absence of high tension
+  const composureScore = Math.max(0, 1 - Math.max(browDown, mouthFrown) * 1.2);
+
+  let expression = 'Neutral';
+  let confidence = Math.round(composureScore * 100);
+
+  if (smileScore > 0.45) {
+    expression = 'Smiling / Positive';
+  } else if (smileScore > 0.22) {
+    expression = 'Warm / Confident';
+  } else if (thinkingScore > 0.35) {
+    expression = 'Thinking / Analytical';
+  } else if (surpriseScore > 0.4) {
+    expression = 'Surprised / Highly Alert';
+  } else if (browDown > 0.3) {
+    expression = 'Focused / Serious';
+  } else {
+    expression = 'Neutral / Composed';
+  }
+
+  return {
+    expression,
+    confidence,
+    scores: {
+      smile: Number(smileScore.toFixed(3)),
+      thinking: Number(thinkingScore.toFixed(3)),
+      surprise: Number(surpriseScore.toFixed(3)),
+      composure: Number(composureScore.toFixed(3))
+    }
+  };
 };
 
 /**
@@ -399,6 +455,8 @@ export const classifyFrame = (results) => {
 
   // Head is oriented toward screen: Now evaluate eye gaze direction
   const eyeGaze = estimateEyeGaze(blendshapesObj, landmarks);
+  const facialExpression = detectFacialExpressions(blendshapesObj);
+
   if (eyeGaze.isGazeDiverted) {
     return {
       status: 'looking_away',
@@ -410,6 +468,8 @@ export const classifyFrame = (results) => {
       roll: Math.round(roll),
       gazeDirection: eyeGaze.gazeDirection,
       gazeScores: eyeGaze.scores,
+      expression: facialExpression.expression,
+      expressionScores: facialExpression.scores,
     };
   }
 
@@ -423,5 +483,7 @@ export const classifyFrame = (results) => {
     roll: Math.round(roll),
     gazeDirection: 'center',
     gazeScores: eyeGaze.scores,
+    expression: facialExpression.expression,
+    expressionScores: facialExpression.scores,
   };
 };

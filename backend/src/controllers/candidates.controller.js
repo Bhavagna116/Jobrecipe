@@ -17,7 +17,7 @@ export const clearCandidatesCache = () => {
 export const getAllCandidates = async (req, res) => {
   try {
     if (!pool || !getDbStatus()) {
-      return res.json({ success: true, data: [], total: 0 });
+      return res.json({ success: true, data: fallbackCandidates, total: fallbackCandidates.length });
     }
 
     const { collegeId, enforced } = resolveCollegeScope(req);

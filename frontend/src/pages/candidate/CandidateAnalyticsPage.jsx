@@ -26,7 +26,48 @@ import {
 } from 'lucide-react';
 
 export default function CandidateAnalyticsPage() {
-  const { currentUser, latestResult, candidateSubmissions, setCandidateSubmissions, assessments, startAssessment, navigateTo, addToast } = useApp();
+  const { currentUser, role, latestResult, candidateSubmissions, setCandidateSubmissions, assessments, startAssessment, navigateTo, addToast } = useApp();
+
+  // Results and scores are strictly restricted to the Admin Portal.
+  if (role !== 'admin') {
+    return (
+      <div className="min-h-[75vh] flex items-center justify-center p-4 sm:p-8">
+        <div className="max-w-lg w-full bg-white border border-slate-200/90 rounded-3xl shadow-card p-8 sm:p-10 text-center space-y-6">
+          <div className="w-16 h-16 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto shadow-xs">
+            <CheckCircle2 className="w-9 h-9" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+              Thanks for Submitting!
+            </h1>
+            <p className="text-sm font-bold text-slate-800">
+              You will receive a mail with your results.
+            </p>
+            <p className="text-xs text-slate-500 leading-relaxed max-w-md mx-auto">
+              All assessment and AI interview scores are reviewed exclusively in the Admin Portal and will be sent directly to{' '}
+              <strong className="text-slate-700">{currentUser?.email || 'your registered email'}</strong>.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => navigateTo('assessments')}
+              className="flex-1 py-3 px-5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+            >
+              Back to Assessments
+            </button>
+            <button
+              type="button"
+              onClick={() => navigateTo('dashboard')}
+              className="flex-1 py-3 px-5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
+            >
+              Go to Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const [activeSection, setActiveSection] = useState('results');
   const [selectedModuleFilter, setSelectedModuleFilter] = useState('ALL');
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -605,282 +646,30 @@ export default function CandidateAnalyticsPage() {
           </section>
         ) : (
           <section ref={sectionRefs.results} className="space-y-6">
-            {/* Assessment Header Card */}
-            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-card p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
-              <div className="space-y-2.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>
-                      {activeSubmission
-                        ? 'Verified Assessment Result'
-                        : `${distinctSubs.length} Assessment Modules Submitted & Verified`}
-                    </span>
-                  </div>
-
-                  {/* Assessment Switcher Dropdown */}
-                  {distinctSubs.length > 1 && (
-                    <div className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200/70 border border-slate-200/90 rounded-xl px-2.5 py-1 text-xs transition-colors">
-                      <Layers className="w-3.5 h-3.5 text-brand-600 shrink-0" />
-                      <span className="font-semibold text-slate-500">Test:</span>
-                      <select
-                        value={
-                          selectedAssessmentId === 'ALL_CUMULATIVE'
-                            ? 'ALL_CUMULATIVE'
-                            : (distinctSubs.some(s => String(s.assessment_id || s.id) === String(selectedAssessmentId))
-                                ? selectedAssessmentId
-                                : (activeSubmission ? (activeSubmission.assessment_id || activeSubmission.id) : 'ALL_CUMULATIVE'))
-                        }
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setSelectedAssessmentId(val);
-                          try {
-                            localStorage.setItem('rsj_selected_analytics_asm_id', val);
-                          } catch (err) { }
-                        }}
-                        className="bg-transparent font-bold text-slate-800 text-xs border-none outline-none cursor-pointer pr-1"
-                      >
-                        {distinctSubs.map(s => {
-                          const idVal = s.assessment_id || s.id;
-                          const sObt = Number(s.obtained_marks ?? s.obtainedMarks ?? 0);
-                          const sTot = Number(s.total_marks ?? s.totalMarks ?? 0);
-                          const sPct = sTot > 0 ? Math.round((sObt / sTot) * 100) : Number(s.score ?? 0);
-                          // Include the attempt timestamp so papers sharing a title are distinguishable.
-                          const sWhen = s.created_at
-                            ? new Date(s.created_at).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-                            : '';
-                          return (
-                            <option key={idVal} value={idVal}>
-                              {s.assessment_title || 'Assessment'}{sWhen ? ` — ${sWhen}` : ''} ({sObt}/{sTot} Marks • {sPct}%)
-                            </option>
-                          );
-                        })}
-                        <option value="ALL_CUMULATIVE">
-                          All Modules Cumulative ({cumulativeMetrics.obtained}/{cumulativeMetrics.total} Marks • {cumulativeMetrics.score}%)
-                        </option>
-                      </select>
-                    </div>
-                  )}
-                </div>
-
-                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-                  {displayResultMetrics.title} Results
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-card p-8 sm:p-12 text-center space-y-5">
+              <div className="w-16 h-16 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-xs">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                  Thank you!
                 </h2>
+                <p className="text-base font-bold text-slate-800">
+                  You will receive an email with your result.
+                </p>
+                <p className="text-xs sm:text-sm text-slate-500 max-w-lg mx-auto leading-relaxed">
+                  Your assessment has been safely submitted and recorded. Candidate test marks are kept confidential and will be sent directly to your registered email address along with personalized performance analytics.
+                </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                {/* Module Selector Filter */}
-                <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
-                  <button
-                    onClick={() => setSelectedModuleFilter('ALL')}
-                    className={`px-3 py-1.5 rounded-lg transition-all ${selectedModuleFilter === 'ALL'
-                      ? 'bg-slate-900 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                  >
-                    {activeSubmission ? 'Assessment Summary' : 'All Modules Summary'}
-                  </button>
-                  {['Technical', 'Aptitude', 'Reasoning', 'Coding', 'Verbal'].map(cat => (
-                    <button
-                      key={cat}
-                      onClick={() => setSelectedModuleFilter(cat)}
-                      className={`px-3 py-1.5 rounded-lg transition-all ${selectedModuleFilter === cat
-                        ? 'bg-brand-600 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-
+              <div className="pt-2">
                 <button
-                  onClick={() => setIsReportModalOpen(true)}
-                  className="px-4 py-2.5 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-700 hover:to-brand-600 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-md shadow-brand-500/20 transition-all flex items-center gap-2"
+                  onClick={() => navigateTo ? navigateTo('interview') : (window.location.href = '/interview')}
+                  className="px-8 py-3.5 bg-gradient-to-r from-brand-600 to-cyan-600 hover:from-brand-700 hover:to-cyan-700 text-white rounded-xl text-xs sm:text-sm font-extrabold shadow-md shadow-brand-500/20 transition-all inline-flex items-center gap-2 cursor-pointer"
                 >
-                  <Download className="w-4 h-4" />
-                  <span>Download Official Report (PDF)</span>
+                  <span>Proceed to AI Mock Interview</span>
+                  <ArrowRight className="w-4 h-4" />
                 </button>
-              </div>
-            </div>
-
-            {/* Quick Metrics (5 Cards) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              {/* Total Score & Marks */}
-              <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0">
-                  <Award className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Score</span>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-black text-slate-900">{displayResultMetrics.score}%</span>
-                    {displayResultMetrics.totalMarks > 0 && (
-                      <span className="text-xs font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full border border-brand-200">
-                        {`${displayResultMetrics.obtainedMarks} / ${displayResultMetrics.totalMarks} Marks`}
-                      </span>
-                    )}
-                  </div>
-                  <span className="block text-xs font-semibold text-slate-600 mt-0.5">
-                    {displayResultMetrics.totalMarks > 0
-                      ? `Marks: ${displayResultMetrics.obtainedMarks} out of ${displayResultMetrics.totalMarks}`
-                      : 'Verified Evaluation'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Accuracy */}
-              <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
-                  <Target className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Accuracy</span>
-                  <span className="text-2xl font-black text-slate-900">{displayResultMetrics.accuracy}%</span>
-                  <span className="block text-[11px] text-slate-400 font-medium">Attempted accuracy</span>
-                </div>
-              </div>
-
-              {/* Correct */}
-              <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
-                  <CheckCircle2 className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Correct</span>
-                  <span className="text-2xl font-black text-emerald-600">{displayResultMetrics.correctCount} Qs</span>
-                  <span className="block text-[11px] text-slate-400 font-medium">Out of {displayResultMetrics.totalQuestions} Qs</span>
-                </div>
-              </div>
-
-              {/* Incorrect */}
-              <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0">
-                  <XCircle className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Incorrect</span>
-                  <span className="text-2xl font-black text-rose-600">{displayResultMetrics.incorrectCount} Qs</span>
-                  <span className="block text-[11px] text-slate-400 font-medium">Wrong answers</span>
-                </div>
-              </div>
-
-              {/* Unanswered */}
-              <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-card flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center flex-shrink-0">
-                  <MinusCircle className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Unanswered</span>
-                  <span className="text-2xl font-black text-slate-600">{displayResultMetrics.unansweredCount} Qs</span>
-                  <span className="block text-[11px] text-slate-400 font-medium">Not attempted</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Performance Ring & Section Scores */}
-            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-card p-6 sm:p-8 space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Score</span>
-                  <h3 className="text-base font-bold text-slate-900">Job Readiness Score</h3>
-                </div>
-                <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border ${statusBadge.color}`}>
-                  {statusBadge.label}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
-                <div className="md:col-span-4 py-2 flex justify-center">
-                  <ScoreRing score={displayResultMetrics.score} maxScore={100} size={190} />
-                </div>
-
-                <div className="md:col-span-8 space-y-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Section Score Breakdown ({activeSubmission ? (activeSubmission.assessment_title || 'Current Assessment') : 'All Submitted Assessments'})
-                  </h4>
-
-                  {/* Technical CS Fundamentals */}
-                  <div className={`p-3 rounded-xl border space-y-1 transition-all ${selectedModuleFilter === 'Technical' ? 'bg-amber-50/80 border-amber-300 ring-2 ring-amber-400/30' : 'bg-slate-50 border-slate-100'}`}>
-                    <div className="flex items-center justify-between text-xs font-bold">
-                      <span className="text-slate-800 flex items-center gap-1.5">
-                        <span>Technical CS Fundamentals (OS, Networks, DBMS, OOP)</span>
-                      </span>
-                      <span className="text-amber-600 font-bold">
-                        {sectionScores.technical.isSubmitted
-                          ? `${sectionScores.technical.obtained} / ${sectionScores.technical.total} Marks (${sectionScores.technical.pct}%)`
-                          : 'Not Attempted (0%)'}
-                      </span>
-                    </div>
-                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                      <div className="bg-amber-500 h-full rounded-full transition-all duration-500" style={{ width: `${sectionScores.technical.pct}%` }} />
-                    </div>
-                  </div>
-
-                  {/* Aptitude */}
-                  <div className={`p-3 rounded-xl border space-y-1 transition-all ${selectedModuleFilter === 'Aptitude' ? 'bg-blue-50/80 border-blue-300 ring-2 ring-blue-400/30' : 'bg-slate-50 border-slate-100'}`}>
-                    <div className="flex items-center justify-between text-xs font-bold">
-                      <span className="text-slate-800">Aptitude & Quantitative Ability</span>
-                      <span className="text-blue-600 font-bold">
-                        {sectionScores.aptitude.isSubmitted
-                          ? `${sectionScores.aptitude.obtained} / ${sectionScores.aptitude.total} Marks (${sectionScores.aptitude.pct}%)`
-                          : 'Not Attempted (0%)'}
-                      </span>
-                    </div>
-                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                      <div className="bg-blue-500 h-full rounded-full transition-all duration-500" style={{ width: `${sectionScores.aptitude.pct}%` }} />
-                    </div>
-                  </div>
-
-                  {/* Reasoning */}
-                  <div className={`p-3 rounded-xl border space-y-1 transition-all ${selectedModuleFilter === 'Reasoning' ? 'bg-emerald-50/80 border-emerald-300 ring-2 ring-emerald-400/30' : 'bg-slate-50 border-slate-100'}`}>
-                    <div className="flex items-center justify-between text-xs font-bold">
-                      <span className="text-slate-800">Logical & Analytical Reasoning</span>
-                      <span className="text-emerald-600 font-bold">
-                        {sectionScores.reasoning.isSubmitted
-                          ? `${sectionScores.reasoning.obtained} / ${sectionScores.reasoning.total} Marks (${sectionScores.reasoning.pct}%)`
-                          : 'Not Attempted (0%)'}
-                      </span>
-                    </div>
-                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                      <div className="bg-emerald-500 h-full rounded-full transition-all duration-500" style={{ width: `${sectionScores.reasoning.pct}%` }} />
-                    </div>
-                  </div>
-
-                  {/* Coding */}
-                  <div className={`p-3 rounded-xl border space-y-1 transition-all ${selectedModuleFilter === 'Coding' ? 'bg-indigo-50/80 border-indigo-300 ring-2 ring-indigo-400/30' : 'bg-slate-50 border-slate-100'}`}>
-                    <div className="flex items-center justify-between text-xs font-bold">
-                      <span className="text-slate-800 flex items-center gap-1.5">
-                        <Code2 className="w-3.5 h-3.5 text-indigo-500" />
-                        <span>Coding & Algorithmic Problem Solving</span>
-                      </span>
-                      <span className="text-indigo-600 font-bold">
-                        {sectionScores.coding.isSubmitted
-                          ? `${sectionScores.coding.obtained} / ${sectionScores.coding.total} Marks (${sectionScores.coding.pct}%)`
-                          : 'Not Attempted (0%)'}
-                      </span>
-                    </div>
-                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                      <div className="bg-indigo-500 h-full rounded-full transition-all duration-500" style={{ width: `${sectionScores.coding.pct}%` }} />
-                    </div>
-                  </div>
-
-                  {/* Verbal */}
-                  <div className={`p-3 rounded-xl border space-y-1 transition-all ${selectedModuleFilter === 'Verbal' ? 'bg-purple-50/80 border-purple-300 ring-2 ring-purple-400/30' : 'bg-slate-50 border-slate-100'}`}>
-                    <div className="flex items-center justify-between text-xs font-bold">
-                      <span className="text-slate-800">Verbal & Communication</span>
-                      <span className="text-purple-600 font-bold">
-                        {sectionScores.verbal.isSubmitted
-                          ? `${sectionScores.verbal.obtained} / ${sectionScores.verbal.total} Marks (${sectionScores.verbal.pct}%)`
-                          : 'Not Attempted (0%)'}
-                      </span>
-                    </div>
-                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                      <div className="bg-purple-500 h-full rounded-full transition-all duration-500" style={{ width: `${sectionScores.verbal.pct}%` }} />
-                    </div>
-                  </div>
-
-                </div>
               </div>
             </div>
             <hr className="border-slate-200/80" />

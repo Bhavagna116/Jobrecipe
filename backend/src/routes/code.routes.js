@@ -13,7 +13,8 @@ import {
   subscribeJobEvents
 } from '../queues/submissionQueue.js';
 import { processSubmission } from '../workers/submissionWorker.js';
-import { pool } from '../db/pool.js';
+import { pool, getDbStatus } from '../db/pool.js';
+import { fallbackQuestions } from '../mockFallback.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { redisClient, isRedisAvailable } from '../db/redis.js';
 
@@ -413,7 +414,7 @@ router.post('/evaluate', authenticateToken, async (req, res) => {
   }
 
   try {
-    const { questionId, question_id, assessmentQuestionId, language, sourceCode } = req.body;
+    const { questionId, question_id, assessmentQuestionId, language, sourceCode, testCases } = req.body;
 
     const primaryId = questionId || question_id || assessmentQuestionId;
     if (!primaryId || !language || typeof sourceCode !== 'string') {
@@ -429,7 +430,8 @@ router.post('/evaluate', authenticateToken, async (req, res) => {
         question_id: question_id || primaryId,
         assessmentQuestionId,
         language,
-        sourceCode
+        sourceCode,
+        testCases
       },
       async () => {}
     );
@@ -652,7 +654,7 @@ router.post('/evaluate-client', authenticateToken, async (req, res) => {
     const secondaryId = question_id || questionId || assessmentQuestionId;
 
     let testCases = [];
-    if (primaryId) {
+    if (primaryId && pool && getDbStatus()) {
       const qRes = await pool.query(
         `SELECT id, type, category, options, test_cases
          FROM questions
@@ -673,6 +675,15 @@ router.post('/evaluate-client', authenticateToken, async (req, res) => {
         );
         testCases = parseTestCasesField(aqRes.rows[0]);
       }
+    }
+
+    if (testCases.length === 0 && primaryId) {
+      const fbQ = fallbackQuestions.find(
+        (q) =>
+          String(q.id).toLowerCase() === String(primaryId).toLowerCase() ||
+          String(q.id).toLowerCase() === String(secondaryId).toLowerCase()
+      );
+      if (fbQ) testCases = parseTestCasesField(fbQ);
     }
 
     if (testCases.length === 0 && Array.isArray(clientTestCases) && clientTestCases.length > 0) {

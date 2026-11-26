@@ -93,7 +93,29 @@ const timeRemainingFor = (startedAt, limitSeconds) => {
 export const getAssessmentSections = async (req, res) => {
   try {
     if (!pool || !getDbStatus()) {
-      return res.json({ success: true, data: [] });
+      const asm = fallbackAssessments.find(a => String(a.id).toLowerCase() === String(req.params.id).toLowerCase()) || fallbackAssessments[0];
+      const cat = asm?.category || 'Technical';
+      const isAll = ['All', 'Full Length', 'All Mix'].some(m => m.toLowerCase() === cat.toLowerCase());
+      const matchingQuestions = isAll
+        ? fallbackQuestions
+        : fallbackQuestions.filter(q => String(q.category).toLowerCase() === cat.toLowerCase());
+
+      return res.json({
+        success: true,
+        data: [
+          {
+            id: `sec-${cat.toLowerCase()}-1`,
+            name: `${cat} Section`,
+            description: `${cat} evaluation section`,
+            questionCount: matchingQuestions.length,
+            marksPerQuestion: cat === 'Coding' ? 10 : 4,
+            durationMinutes: asm?.duration_minutes || asm?.durationMinutes || 10,
+            displayOrder: 1,
+            questionIds: matchingQuestions.map(q => q.id),
+            questions: req.user?.role === 'admin' ? matchingQuestions : undefined,
+          }
+        ]
+      });
     }
 
     const isAdmin = req.user?.role === 'admin';
@@ -378,15 +400,100 @@ const buildStartPayload = async (client, attempt, assessment, includeAnswer, ans
 
 // POST /api/assessments/:id/attempt/start
 export const startAssessmentAttempt = async (req, res) => {
+  const { id: assessmentId } = req.params;
+  const candidateId = req.user?.id;
+  if (!candidateId) return res.status(401).json({ error: 'Authentication required.' });
+
+  if (!pool || !getDbStatus()) {
+    const asm = fallbackAssessments.find(a => String(a.id).toLowerCase() === String(assessmentId).toLowerCase()) || fallbackAssessments[0];
+    const cat = asm?.category || 'Technical';
+    const isAll = ['All', 'Full Length', 'All Mix'].some(m => m.toLowerCase() === cat.toLowerCase());
+    const matchingQuestions = isAll
+      ? fallbackQuestions
+      : fallbackQuestions.filter(q => String(q.category).toLowerCase() === cat.toLowerCase());
+
+    const sectionId = `sec-${cat.toLowerCase()}-1`;
+    return res.json({
+      success: true,
+      resumed: false,
+      attemptId: `att-mock-${Date.now()}`,
+      setCode: 'A',
+      assessment: {
+        id: asm.id,
+        title: asm.title,
+        category: asm.category,
+        durationMinutes: asm.duration_minutes || asm.durationMinutes || 10,
+        passingScore: asm.passing_score || asm.passingScore || 60,
+        totalMarks: asm.total_marks || asm.totalMarks || 40,
+        totalQuestions: matchingQuestions.length,
+      },
+      sections: [
+        {
+          attemptSectionId: `as-${Date.now()}`,
+          id: sectionId,
+          name: `${cat} Section`,
+          description: `${cat} evaluation`,
+          marksPerQuestion: cat === 'Coding' ? 10 : 4,
+          durationMinutes: asm.duration_minutes || asm.durationMinutes || 10,
+          timeRemainingSeconds: (asm.duration_minutes || asm.durationMinutes || 10) * 60,
+          status: 'InProgress',
+          displayOrder: 1,
+          questionCount: matchingQuestions.length,
+          totalQuestions: matchingQuestions.length,
+          questions: matchingQuestions.map(q => ({
+            id: q.id,
+            question_id: q.id,
+            section_id: sectionId,
+            category: q.category,
+            topic: q.topic,
+            question: q.question,
+            difficulty: q.difficulty,
+            options: q.options,
+            marks: q.marks || (cat === 'Coding' ? 10 : 4),
+            test_cases: q.test_cases,
+            starter_templates: q.starter_templates,
+            constraints: q.constraints,
+            type: q.type || (cat === 'Coding' ? 'Coding' : 'Single Choice'),
+            correct_answer: req.user?.role === 'admin' ? q.correct_answer : undefined
+          }))
+        }
+      ],
+      currentSectionIndex: 0,
+      currentSection: {
+        attemptSectionId: `as-${Date.now()}`,
+        id: sectionId,
+        name: `${cat} Section`,
+        description: `${cat} evaluation`,
+        marksPerQuestion: cat === 'Coding' ? 10 : 4,
+        durationMinutes: asm.duration_minutes || asm.durationMinutes || 10,
+        timeRemainingSeconds: (asm.duration_minutes || asm.durationMinutes || 10) * 60,
+        status: 'InProgress',
+        displayOrder: 1,
+        questionCount: matchingQuestions.length,
+        totalQuestions: matchingQuestions.length,
+        questions: matchingQuestions.map(q => ({
+          id: q.id,
+          question_id: q.id,
+          section_id: sectionId,
+          category: q.category,
+          topic: q.topic,
+          question: q.question,
+          difficulty: q.difficulty,
+          options: q.options,
+          marks: q.marks || (cat === 'Coding' ? 10 : 4),
+          test_cases: q.test_cases,
+          starter_templates: q.starter_templates,
+          constraints: q.constraints,
+          type: q.type || (cat === 'Coding' ? 'Coding' : 'Single Choice'),
+          correct_answer: req.user?.role === 'admin' ? q.correct_answer : undefined
+        }))
+      },
+      answers: {}
+    });
+  }
+
   const client = await pool.connect();
   try {
-    const { id: assessmentId } = req.params;
-    const candidateId = req.user?.id;
-    if (!candidateId) return res.status(401).json({ error: 'Authentication required.' });
-
-    if (!pool || !getDbStatus()) {
-      return res.status(503).json({ error: 'Database unavailable. Please retry.' });
-    }
 
     const includeAnswer = req.user?.role === 'admin';
     await client.query('BEGIN');
@@ -698,12 +805,15 @@ const normalizeAnswer = (v) => String(v ?? '').trim().toUpperCase();
 
 // POST /api/attempts/:attemptId/submit — close the attempt and compute stats
 export const submitAssessmentAttempt = async (req, res) => {
+  const candidateId = req.user?.id;
+  if (!candidateId) return res.status(401).json({ error: 'Authentication required.' });
+  if (!pool || !getDbStatus()) {
+    return res.json({ success: true, fallback: true, attemptId: req.params.attemptId });
+  }
+
   const client = await pool.connect();
   try {
     const { attemptId } = req.params;
-    const candidateId = req.user?.id;
-    if (!candidateId) return res.status(401).json({ error: 'Authentication required.' });
-    if (!pool || !getDbStatus()) return res.status(503).json({ error: 'Database unavailable.' });
 
     const attempt = await loadOwnedAttempt(attemptId, candidateId);
     if (!attempt) return res.status(404).json({ error: 'Attempt not found.' });

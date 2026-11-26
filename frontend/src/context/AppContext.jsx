@@ -332,10 +332,9 @@ export const AppProvider = ({ children }) => {
 
   const areAllAssessmentsCompleted = React.useCallback(() => {
     if (role === 'admin') return true;
-    // 1. Check flag stored in localStorage upon completing an exam attempt
+    // 1. Check flag stored in localStorage upon completing all exam attempts in pipeline
     if (typeof window !== 'undefined' && (
-      localStorage.getItem('rsj_interview_unlocked_by_test') === 'true' ||
-      localStorage.getItem('rsj_assessment_completed') === 'true'
+      localStorage.getItem('rsj_all_assessments_completed') === 'true'
     )) {
       return true;
     }
@@ -398,7 +397,14 @@ export const AppProvider = ({ children }) => {
   const interviewOpenForAll = interviewSettings?.isLocked === false && interviewSettings?.requireAssessmentFirst === false;
 
   const isInterviewUnlocked = role === 'admin' ||
-    (!interviewHardLocked && (interviewOpenForAll || areAllAssessmentsCompleted()));
+    (!interviewHardLocked && (
+      interviewOpenForAll ||
+      areAllAssessmentsCompleted() ||
+      (typeof window !== 'undefined' && (
+        localStorage.getItem('rsj_interview_unlocked_by_test') === 'true' &&
+        localStorage.getItem('rsj_all_assessments_completed') === 'true'
+      ))
+    ));
 
   // Sync to localStorage
   useEffect(() => {
@@ -1767,11 +1773,7 @@ export const AppProvider = ({ children }) => {
     setMarkedForReview([]);
     stopMediaStream();
 
-    addToast('Assessment submitted successfully! Score calculated.', 'success');
-    setCurrentView('candidate-analytics');
-    try {
-      window.history.pushState(null, '', '/candidate-analytics');
-    } catch (e) {}
+    addToast('Assessment submitted successfully! You will receive an email with your result.', 'success');
     return submissionRes;
   };
 

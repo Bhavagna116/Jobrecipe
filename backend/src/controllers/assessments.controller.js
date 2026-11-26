@@ -134,7 +134,7 @@ export const warmAssessmentsCache = async () => {
 export const getAllAssessments = async (req, res) => {
   try {
     if (!pool || !getDbStatus()) {
-      return res.json({ success: true, data: [] });
+      return res.json({ success: true, data: fallbackAssessments });
     }
 
     // Archived assessments are hidden from candidates but still visible to admins
@@ -238,6 +238,12 @@ export const getAllAssessments = async (req, res) => {
 // GET /api/assessments/:id
 export const getAssessmentById = async (req, res) => {
   try {
+    if (!pool || !getDbStatus()) {
+      const asm = fallbackAssessments.find(a => String(a.id).toLowerCase() === String(req.params.id).toLowerCase()) || fallbackAssessments[0];
+      if (!asm) return res.status(404).json({ error: 'Assessment not found.' });
+      return res.json({ success: true, data: asm });
+    }
+
     if (req.user?.role === 'candidate') {
       const allowed = await candidateCanAccessAssessment(req.params.id, req.user);
       if (!allowed) return res.status(404).json({ error: 'Assessment not found.' });

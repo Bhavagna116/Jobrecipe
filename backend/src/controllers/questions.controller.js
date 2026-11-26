@@ -47,7 +47,7 @@ export const warmQuestionsCache = async () => {
 export const getAllQuestions = async (req, res) => {
   try {
     if (!pool || !getDbStatus()) {
-      return res.json({ success: true, data: [], total: 0 });
+      return res.json({ success: true, data: fallbackQuestions, total: fallbackQuestions.length });
     }
 
     const { category, difficulty, topic } = req.query;

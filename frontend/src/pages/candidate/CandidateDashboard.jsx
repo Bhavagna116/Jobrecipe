@@ -167,94 +167,56 @@ export const CandidateDashboard = () => {
 
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={() => setIsReportModalOpen(true)}
-              className="px-4 py-2.5 bg-brand-500 hover:bg-brand-400 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-brand-500/30 flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              <span>Download Official Report</span>
-            </button>
-            <button
-              onClick={() => navigateTo('candidate-analytics')}
-              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
-            >
-              <Award className="w-4 h-4 text-brand-300" />
-              <span>View Analytics</span>
-            </button>
-            <button
               onClick={() => navigateTo('assessments')}
-              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+              className="px-5 py-2.5 bg-brand-500 hover:bg-brand-400 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-brand-500/30 flex items-center gap-2 cursor-pointer"
             >
               <ClipboardCheck className="w-4 h-4" />
-              <span>Assessments</span>
+              <span>Go to Assessments</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* TOP SECTION: Overall Score & Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* Overall Job Readiness Score Card */}
-        <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 shadow-card p-6 flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Primary Metric</span>
-              <h3 className="text-base font-bold text-slate-900">Job Readiness Score</h3>
+      {/* Thank you notification banner after assessment */}
+      {(candidateSubmissions?.length > 0 || (typeof window !== 'undefined' && localStorage.getItem('rsj_assessment_completed') === 'true')) && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-3xl p-6 sm:p-7 flex flex-col sm:flex-row items-center justify-between gap-5 shadow-xs">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white text-emerald-600 border border-emerald-200 rounded-2xl flex items-center justify-center shrink-0 shadow-xs">
+              <CheckCircle2 className="w-6 h-6" />
             </div>
-            <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
-              {currentUser?.readinessStatus || 'Good Progress'}
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Thanks for submitting! You will receive a mail with your results.</h3>
+              <p className="text-xs text-slate-600 mt-0.5">All evaluation scores are reviewed in the Admin Portal and sent directly to your registered email.</p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigateTo('assessments')}
+            className="w-full sm:w-auto px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0"
+          >
+            <span>View Pipeline Status</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* PIPELINE STATUS SUMMARY (Scores are Admin-Only) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 shadow-card p-6 flex flex-col justify-between space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Evaluation Pipeline</span>
+              <h3 className="text-base font-bold text-slate-900">Sequential Assessment Progress</h3>
+            </div>
+            <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-brand-50 text-brand-700 border border-brand-200">
+              {candidateSubmissions?.length || 0} / {assessments?.length || 4} Completed
             </span>
           </div>
-
-          <div className="py-2">
-            <ScoreRing score={Number(currentUser?.jobReadinessScore ?? currentUser?.job_readiness_score ?? 0)} maxScore={100} size={180} />
-          </div>
-
-          {/* Subscore Breakdown */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-4 border-t border-slate-100 text-center">
-            <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
-              <span className="text-[10px] font-semibold text-slate-600 block uppercase">Aptitude</span>
-              <span className="text-base font-extrabold text-slate-900">{currentUser?.aptitudeScore ?? 0}%</span>
-              <div className="w-full bg-slate-200 h-1 rounded-full mt-1.5 overflow-hidden">
-                <div className="bg-brand-500 h-full rounded-full" style={{ width: `${currentUser?.aptitudeScore ?? 0}%` }} />
-              </div>
-            </div>
-
-            <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
-              <span className="text-[10px] font-semibold text-slate-600 block uppercase">Reasoning</span>
-              <span className="text-base font-extrabold text-slate-900">{currentUser?.reasoningScore ?? 0}%</span>
-              <div className="w-full bg-slate-200 h-1 rounded-full mt-1.5 overflow-hidden">
-                <div className="bg-purple-500 h-full rounded-full" style={{ width: `${currentUser?.reasoningScore ?? 0}%` }} />
-              </div>
-            </div>
-
-            <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
-              <span className="text-[10px] font-semibold text-slate-600 block uppercase">Technical</span>
-              <span className="text-base font-extrabold text-slate-900">{currentUser?.technicalScore ?? 0}%</span>
-              <div className="w-full bg-slate-200 h-1 rounded-full mt-1.5 overflow-hidden">
-                <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${currentUser?.technicalScore ?? 0}%` }} />
-              </div>
-            </div>
-
-            <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
-              <span className="text-[10px] font-semibold text-slate-600 block uppercase">Verbal</span>
-              <span className="text-base font-extrabold text-slate-900">{currentUser?.verbalScore ?? 0}%</span>
-              <div className="w-full bg-slate-200 h-1 rounded-full mt-1.5 overflow-hidden">
-                <div className="bg-amber-500 h-full rounded-full" style={{ width: `${currentUser?.verbalScore ?? 0}%` }} />
-              </div>
-            </div>
-
-            <div className="p-2 bg-slate-50 rounded-xl border border-slate-100 col-span-2 sm:col-span-1">
-              <span className="text-[10px] font-semibold text-slate-600 block uppercase">Coding</span>
-              <span className="text-base font-extrabold text-slate-900">{currentUser?.codingScore ?? 0}%</span>
-              <div className="w-full bg-slate-200 h-1 rounded-full mt-1.5 overflow-hidden">
-                <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${currentUser?.codingScore ?? 0}%` }} />
-              </div>
-            </div>
-          </div>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Complete all 4 rounds sequentially (Technical → Aptitude → Reasoning → Coding) followed by your AI Mock Interview. Your detailed scores are reviewed by the administration team and sent to your registered email.
+          </p>
         </div>
 
-        {/* Continue Assessment Active Card & Assessment Suite */}
+        {/* Continue Assessment Active Card & Result Delivery */}
         <div className="lg:col-span-7 space-y-6">
           
           {/* Continue Assessment Hero Card */}
@@ -303,20 +265,13 @@ export const CandidateDashboard = () => {
             </div>
           )}
 
-          {/* Performance Summary Line Chart */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Score History</span>
-                <h3 className="text-sm font-bold text-slate-900">Performance Growth Over Recent Tests</h3>
-              </div>
-              <span className="text-xs font-semibold text-emerald-800 flex items-center gap-1">
-                <TrendingUp className="w-3.5 h-3.5" /> +16% Growth
-              </span>
-            </div>
-            <div className="h-44 w-full">
-              <Line data={trendData} options={trendOptions} />
-            </div>
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-card p-5 space-y-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Result Delivery</span>
+            <h3 className="text-sm font-bold text-slate-900">Admin Portal Evaluation &amp; Email Dispatch</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Scores and interview reviews are strictly evaluated in the Admin Portal. You will receive an email at{' '}
+              <strong className="text-slate-800">{currentUser?.email || 'your registered email'}</strong> with your results.
+            </p>
           </div>
 
         </div>
@@ -379,7 +334,7 @@ export const CandidateDashboard = () => {
                           ? 'bg-amber-50 text-amber-700 border border-amber-200'
                           : 'bg-brand-50 text-brand-700 border border-brand-200'
                       }`}>
-                        {isCompleted ? (obtainedMarks != null ? `Completed • ${obtainedMarks}/${totalMarks} Marks (${displayScore}%)` : `Completed • ${displayScore}%`) : isInProgress ? 'In Progress' : 'Available'}
+                        {isCompleted ? 'Completed • Result via Email' : isInProgress ? 'In Progress' : 'Available'}
                       </span>
                     </div>
 
@@ -404,24 +359,9 @@ export const CandidateDashboard = () => {
 
                   <div>
                     {isCompleted ? (
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            localStorage.setItem('rsj_selected_analytics_asm_id', asm.id || '');
-                            navigateTo('candidate-analytics');
-                          }}
-                          className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-xs"
-                          title="Single-Attempt Policy Active: View your final score & analysis"
-                        >
-                          <BarChart2 className="w-3.5 h-3.5" />
-                          <span>View Result & Analysis</span>
-                        </button>
-                        <div
-                          className="py-2 px-2.5 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-semibold flex items-center gap-1 border border-emerald-200 cursor-not-allowed select-none"
-                          title="Assessment completed (1 attempt limit)"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        </div>
+                      <div className="w-full py-2 px-3 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-emerald-200">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Completed • Result via Email</span>
                       </div>
                     ) : isInProgress ? (
                       <button

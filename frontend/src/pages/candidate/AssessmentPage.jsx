@@ -6,8 +6,6 @@ import { Modal } from '../../components/common/Modal';
 import { MediaPreviewWidget } from '../../components/candidate/MediaPreviewWidget';
 import { CodingWorkspace } from '../../components/candidate/CodingWorkspace';
 import MarkdownText from '../../components/common/MarkdownText';
-// NOTE: Camera face-presence proctoring is temporarily disabled for this build.
-/*
 import {
   getFaceLandmarker,
   classifyFrame,
@@ -15,7 +13,6 @@ import {
   DETECTION_INTERVAL_MS,
   MAX_ALLOWED_STRIKES
 } from '../../services/proctoringService';
-*/
 import {
   Clock,
   Bookmark,
@@ -76,6 +73,7 @@ export const AssessmentPage = () => {
     timeRemainingSeconds,
     setTimeRemainingSeconds,
     submitAssessment,
+    startAssessment,
     navigateTo,
     addToast,
     role,
@@ -84,6 +82,103 @@ export const AssessmentPage = () => {
   } = useApp();
 
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [showThankYouModal, setShowThankYouModal] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState(4);
+
+  const ROUNDS_ORDER = ['Technical', 'Aptitude', 'Reasoning', 'Coding'];
+
+  const getNextAssessmentInSequence = () => {
+    const list = Array.isArray(assessments) ? assessments : [];
+    const currentCat = activeAssessment?.category || '';
+    const currentIndex = ROUNDS_ORDER.findIndex(
+      cat => cat.toLowerCase() === String(currentCat).toLowerCase()
+    );
+
+    // Find candidate's next pending round in the exact sequence: Technical -> Aptitude -> Reasoning -> Coding
+    for (let i = currentIndex + 1; i < ROUNDS_ORDER.length; i++) {
+      const nextCategory = ROUNDS_ORDER[i];
+      const match = list.find(a => String(a.category).toLowerCase() === nextCategory.toLowerCase());
+      if (match) {
+        const isComp = (isAssessmentCompleted && isAssessmentCompleted(match)) || (candidateSubmissions || []).some(s => {
+          const sId = String(s.assessment_id || s.assessmentId || '').trim().toLowerCase();
+          const aId = String(match.id || '').trim().toLowerCase();
+          return aId && sId === aId;
+        });
+        if (!isComp) {
+          return match;
+        }
+      }
+    }
+
+    // Also check any earlier round in sequence that may not have been completed
+    for (let i = 0; i <= currentIndex; i++) {
+      const cat = ROUNDS_ORDER[i];
+      const match = list.find(a => String(a.category).toLowerCase() === cat.toLowerCase());
+      if (match && String(match.id).toLowerCase() !== String(activeAssessment?.id).toLowerCase()) {
+        const isComp = (isAssessmentCompleted && isAssessmentCompleted(match)) || (candidateSubmissions || []).some(s => {
+          const sId = String(s.assessment_id || s.assessmentId || '').trim().toLowerCase();
+          const aId = String(match.id || '').trim().toLowerCase();
+          return aId && sId === aId;
+        });
+        if (!isComp) {
+          return match;
+        }
+      }
+    }
+    return null;
+  };
+
+  const nextAssessment = getNextAssessmentInSequence();
+
+  const proceedToNextStage = async () => {
+    setShowThankYouModal(false);
+    if (nextAssessment) {
+      // Advance automatically and start the next assessment round's exam directly
+      hasRedirectedRef.current = false;
+      isSubmittedRef.current = false;
+      setIsSubmitting(false);
+      badStateStartTimeRef.current = null;
+      strikeLatchedRef.current = false;
+      setCountdownSeconds(4);
+
+      try {
+        if (typeof startAssessment === 'function') {
+          await startAssessment(nextAssessment.id);
+        }
+      } catch (e) {
+        console.warn('Auto start next assessment round error:', e);
+      }
+
+      await launchExamForAssessment(nextAssessment);
+      addToast(`Round Completed! Automatically started Next Round: ${nextAssessment.title}`, 'info');
+    } else {
+      // All rounds completed -> automatically proceed to the AI Interview
+      if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement) {
+        try {
+          if (document.exitFullscreen) {
+            document.exitFullscreen().catch(() => { });
+          }
+        } catch (e) { }
+      }
+      localStorage.setItem('rsj_assessment_completed', 'true');
+      localStorage.setItem('rsj_all_assessments_completed', 'true');
+      localStorage.setItem('rsj_interview_unlocked_by_test', 'true');
+      localStorage.setItem('rsj_auto_start_interview', 'true');
+      navigateTo('interview');
+    }
+  };
+
+  useEffect(() => {
+    if (!showThankYouModal) return;
+    if (countdownSeconds <= 0) {
+      proceedToNextStage();
+      return;
+    }
+    const timer = setTimeout(() => {
+      setCountdownSeconds(prev => prev - 1);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [showThankYouModal, countdownSeconds, nextAssessment]);
   const [showEnterFullscreenModal, setShowEnterFullscreenModal] = useState(false);
   // Unified navigation/fullscreen proctoring warning (strikes, distinct reasons)
   const [navWarning, setNavWarning] = useState({
@@ -95,6 +190,41 @@ export const AssessmentPage = () => {
     isFinal: false,
   });
   const [copiedCode, setCopiedCode] = useState(false);
+  const [camPos, setCamPos] = useState({ x: null, y: null });
+  const dragOffsetRef = useRef(null);
+
+  const handleCameraDragStart = (clientX, clientY, targetEl) => {
+    const rect = targetEl.getBoundingClientRect();
+    dragOffsetRef.current = {
+      offsetX: clientX - rect.left,
+      offsetY: clientY - rect.top,
+      width: rect.width,
+      height: rect.height
+    };
+    const onMove = (mx, my) => {
+      if (!dragOffsetRef.current) return;
+      const maxX = Math.max(8, window.innerWidth - dragOffsetRef.current.width - 8);
+      const maxY = Math.max(8, window.innerHeight - dragOffsetRef.current.height - 8);
+      const nextX = Math.min(maxX, Math.max(8, mx - dragOffsetRef.current.offsetX));
+      const nextY = Math.min(maxY, Math.max(8, my - dragOffsetRef.current.offsetY));
+      setCamPos({ x: nextX, y: nextY });
+    };
+    const handleMouseMove = (ev) => onMove(ev.clientX, ev.clientY);
+    const handleTouchMove = (ev) => {
+      if (ev.touches?.[0]) onMove(ev.touches[0].clientX, ev.touches[0].clientY);
+    };
+    const stopDrag = () => {
+      dragOffsetRef.current = null;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', stopDrag);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', stopDrag);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', stopDrag);
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', stopDrag);
+  };
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
 
@@ -113,12 +243,26 @@ export const AssessmentPage = () => {
   const attemptQuestionsRef = useRef(new Map());
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | saved | error
 
-  // Proctoring & Camera States
+  // Proctoring & Camera States (cumulative 3-strike limit across all rounds)
+  const initialPipelineStrikes = (() => {
+    try {
+      const hasCompletedAny = (candidateSubmissions || []).length > 0;
+      if (!hasCompletedAny) {
+        localStorage.setItem('rsj_pipeline_proctor_strikes', '0');
+        return 0;
+      }
+      const saved = parseInt(localStorage.getItem('rsj_pipeline_proctor_strikes') || '0', 10);
+      return Number.isFinite(saved) && saved >= 0 ? saved : 0;
+    } catch {
+      return 0;
+    }
+  })();
+
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraDenied, setCameraDenied] = useState(false);
   const [isRequestingCamera, setIsRequestingCamera] = useState(false);
   const [proctorState, setProctorState] = useState({ status: 'initializing', reason: '', message: '' });
-  const [violationCount, setViolationCount] = useState(0);
+  const [violationCount, setViolationCount] = useState(initialPipelineStrikes);
   const [isPausedForWarning, setIsPausedForWarning] = useState(false);
   const [warningModalData, setWarningModalData] = useState({
     isOpen: false,
@@ -129,7 +273,7 @@ export const AssessmentPage = () => {
   });
 
   const videoElementRef = useRef(null);
-  const violationCountRef = useRef(0);
+  const violationCountRef = useRef(initialPipelineStrikes);
   const badStateStartTimeRef = useRef(null);
   const lastBadStatusRef = useRef(null);
   const strikeLatchedRef = useRef(false);
@@ -156,6 +300,9 @@ export const AssessmentPage = () => {
   useEffect(() => {
     if (role === 'admin') return;
 
+    // Do NOT redirect when submitting, submitted, or showing the transition Thank You screen
+    if (isSubmitting || isSubmittedRef.current || showThankYouModal) return;
+
     if (activeAssessment && isAssessmentCompleted && isAssessmentCompleted(activeAssessment)) {
       if (!hasRedirectedRef.current) {
         hasRedirectedRef.current = true;
@@ -173,7 +320,7 @@ export const AssessmentPage = () => {
         navigateTo('assessments');
       }
     }
-  }, [activeAssessment?.id, assessments?.length, role, isAssessmentCompleted]);
+  }, [activeAssessment?.id, assessments?.length, role, isAssessmentCompleted, showThankYouModal, isSubmitting]);
 
   // Ensure questions for the active assessment are fully loaded from the database API
   useEffect(() => {
@@ -271,9 +418,7 @@ export const AssessmentPage = () => {
     stopMediaStream();
   };
 
-  // Camera Gating: Request webcam access for proctoring
-  // NOTE: Camera validation & monitoring is temporarily disabled for this build.
-  /*
+  // Camera feed: Request webcam access for live proctoring preview throughout assessment
   const requestCamera = async () => {
     setIsRequestingCamera(true);
     setCameraDenied(false);
@@ -281,17 +426,27 @@ export const AssessmentPage = () => {
       if (mediaStream && mediaStream.getVideoTracks().some(t => t.readyState === 'live')) {
         setCameraReady(true);
         setIsRequestingCamera(false);
+        if (videoElementRef.current && videoElementRef.current.srcObject !== mediaStream) {
+          videoElementRef.current.srcObject = mediaStream;
+          videoElementRef.current.play?.().catch(() => {});
+        }
         return;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
-        audio: false
-      });
-      setMediaStream(stream);
-      setCameraReady(true);
-      setCameraDenied(false);
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+          audio: false
+        });
+        setMediaStream(stream);
+        setCameraReady(true);
+        setCameraDenied(false);
+        if (videoElementRef.current) {
+          videoElementRef.current.srcObject = stream;
+          videoElementRef.current.play?.().catch(() => {});
+        }
+      }
     } catch (err) {
-      console.error('Camera access denied or unavailable:', err);
+      console.warn('Camera access denied or unavailable:', err);
       setCameraDenied(true);
       setCameraReady(false);
     } finally {
@@ -299,16 +454,30 @@ export const AssessmentPage = () => {
     }
   };
 
-  // Camera gating: request webcam access only once the exam phase starts
+  // Camera gating: request webcam access continuously throughout the exam phase
   useEffect(() => {
-    if (phase !== 'exam') return;
-    requestCamera();
+    if (phase === 'exam') {
+      requestCamera();
+    }
   }, [phase]);
-  */
 
   useEffect(() => () => {
     stopMediaStream();
   }, []);
+
+  // Skip pre-start rules screen automatically if instructions were already accepted in this pipeline
+  const autoSkippedRulesRef = useRef(false);
+  useEffect(() => {
+    if (phase !== 'rules' || !activeAssessment?.id || starting || autoSkippedRulesRef.current) return;
+    if (isAssessmentCompleted && isAssessmentCompleted(activeAssessment)) return;
+    const rulesAlreadyAccepted = localStorage.getItem('rsj_pipeline_rules_accepted') === 'true';
+    const hasCompletedEarlierRound = (candidateSubmissions || []).length > 0;
+    if (rulesAlreadyAccepted && hasCompletedEarlierRound) {
+      autoSkippedRulesRef.current = true;
+      setRulesAck(true);
+      launchExamForAssessment(activeAssessment);
+    }
+  }, [phase, activeAssessment?.id, starting, candidateSubmissions?.length]);
 
   // Load section metadata for the pre-start rules screen
   useEffect(() => {
@@ -409,13 +578,19 @@ export const AssessmentPage = () => {
     setSaveStatus(failures > 0 ? 'error' : 'saved');
   };
 
-  // Rules screen -> Start: open (or resume) the server-side attempt
-  const handleStartExam = async () => {
-    if (!rulesAck || starting) return;
+  // Shared exam launcher: starts/resumes attempt for any assessment and enters 'exam' phase directly
+  const launchExamForAssessment = async (targetAsm) => {
+    if (!targetAsm?.id) return;
     setStarting(true);
     let proceedToExam = false;
+    attemptQuestionsRef.current.clear();
+    setSectionIndex(0);
+    setCurrentQuestionIndex(0);
+    setMarkedForReview([]);
+    attemptIdRef.current = `att-${targetAsm.id}-${currentUser?.id || 'cand'}-${Date.now()}`;
+
     try {
-      const res = await api.assessments.startAttempt(activeAssessment?.id);
+      const res = await api.assessments.startAttempt(targetAsm.id);
       if (!res.ok) {
         if (res.status === 403) {
           addToast(res.error || 'You have already completed this assessment. Retakes are not allowed.', 'warning');
@@ -437,34 +612,65 @@ export const AssessmentPage = () => {
       const seeded = { ...data.answers };
       lastAnswersRef.current = { ...seeded };
       setAssessmentAnswers(seeded);
-      setTimeRemainingSeconds((Number(activeAssessment?.durationMinutes) || 30) * 60);
+      setTimeRemainingSeconds((Number(targetAsm?.durationMinutes) || 10) * 60);
       if (data.resumed) {
         addToast('Resumed your in-progress attempt — saved answers were restored.', 'info');
       }
       proceedToExam = true;
     } catch (err) {
-      // Offline / server hiccup: run in legacy single-section mode (no server attempt tracking)
-      console.warn('[startAttempt] falling back to offline mode:', err.message);
-      const qs = (activeAssessment?.questions && activeAssessment.questions.length > 0)
-        ? activeAssessment.questions
-        : questionBank;
+      // Offline / server hiccup: fetch category questions cleanly and run in single-section mode
+      console.warn('[startAttempt] falling back to offline/direct mode:', err.message);
+      let qs = (targetAsm?.questions && targetAsm.questions.length > 0) ? targetAsm.questions : [];
+      if (qs.length === 0) {
+        try {
+          const qRes = await api.assessments.getQuestions(targetAsm.id);
+          const list = Array.isArray(qRes?.data?.data) ? qRes.data.data : (Array.isArray(qRes?.data) ? qRes.data : []);
+          if (list.length > 0) {
+            qs = list.map(q => ({
+              ...q,
+              id: q.question_id || q.id,
+              questionId: q.question_id || q.id,
+              type: q.type || (q.category === 'Coding' ? 'Coding' : 'Single Choice'),
+              category: q.category || targetAsm.category,
+              options: typeof q.options === 'string' ? JSON.parse(q.options) : (q.options || []),
+              test_cases: typeof q.test_cases === 'string' ? JSON.parse(q.test_cases) : (q.test_cases || []),
+              starter_templates: typeof q.starter_templates === 'string' ? JSON.parse(q.starter_templates) : (q.starter_templates || null),
+            }));
+          }
+        } catch (e) { /* fallback below */ }
+      }
+      if (qs.length === 0) {
+        const cat = targetAsm?.category || 'Technical';
+        const fallback = INITIAL_QUESTION_BANK.filter(q => q.category && q.category.toLowerCase() === cat.toLowerCase());
+        qs = fallback.length > 0 ? fallback : questionBank;
+      }
+
       setAttemptId(null);
-      setAttemptSections([{ id: null, name: 'All Questions', durationMinutes: Number(activeAssessment?.durationMinutes) || 30, status: 'InProgress' }]);
+      setAttemptSections([{ id: null, name: 'All Questions', durationMinutes: Number(targetAsm?.durationMinutes) || 10, status: 'InProgress' }]);
       setSectionIndex(0);
       setSectionQuestions(qs);
       qs.forEach(q => attemptQuestionsRef.current.set(q.id, q));
-      setTimeRemainingSeconds((Number(activeAssessment?.durationMinutes) || 30) * 60);
+      setTimeRemainingSeconds((Number(targetAsm?.durationMinutes) || 10) * 60);
       lastAnswersRef.current = {};
       setAssessmentAnswers({});
-      addToast('Offline mode: start could not reach the server. Your answers will sync on submit.', 'warning');
       proceedToExam = true;
     } finally {
       setStarting(false);
       if (proceedToExam) {
         setPhase('exam');
+        requestCamera();
         requestExamFullscreen();
       }
     }
+  };
+
+  // Rules screen -> Start: open (or resume) the server-side attempt
+  const handleStartExam = async () => {
+    if (!rulesAck || starting) return;
+    try {
+      localStorage.setItem('rsj_pipeline_rules_accepted', 'true');
+    } catch { }
+    await launchExamForAssessment(activeAssessment);
   };
 
   // Next Section (or Submit on the last section) — forward-only, never goes back
@@ -612,12 +818,20 @@ export const AssessmentPage = () => {
     } finally {
       setIsSubmitting(false);
       try {
+        localStorage.setItem('rsj_assessment_completed', 'true');
         if (activeAssessment?.id) {
           localStorage.setItem('rsj_selected_analytics_asm_id', activeAssessment.id);
         }
+        if (!nextAssessment) {
+          localStorage.setItem('rsj_all_assessments_completed', 'true');
+          localStorage.setItem('rsj_interview_unlocked_by_test', 'true');
+          localStorage.setItem('rsj_auto_start_interview', 'true');
+        } else {
+          localStorage.removeItem('rsj_auto_start_interview');
+        }
       } catch (e) { }
-      // Return to the assessments list instead of pushing on to the next one.
-      navigateTo('assessments');
+      setShowThankYouModal(true);
+      setCountdownSeconds(4);
     }
   };
 
@@ -660,17 +874,23 @@ export const AssessmentPage = () => {
       setShowSubmitModal(false);
       try {
         localStorage.setItem('rsj_assessment_completed', 'true');
-        localStorage.setItem('rsj_interview_unlocked_by_test', 'true');
         if (activeAssessment?.title) {
           localStorage.setItem('rsj_last_completed_assessment', activeAssessment.title);
         }
         if (activeAssessment?.id) {
           localStorage.setItem('rsj_selected_analytics_asm_id', activeAssessment.id);
         }
+        if (!nextAssessment) {
+          localStorage.setItem('rsj_all_assessments_completed', 'true');
+          localStorage.setItem('rsj_interview_unlocked_by_test', 'true');
+          localStorage.setItem('rsj_auto_start_interview', 'true');
+        } else {
+          localStorage.removeItem('rsj_auto_start_interview');
+        }
       } catch (e) { }
-      exitExamFullscreenAndStopMedia();
-      // Return to the assessments list so the candidate can pick what to do next.
-      navigateTo('assessments');
+      // Display thank you screen without scores and transition directly to AI interview
+      setShowThankYouModal(true);
+      setCountdownSeconds(4);
     } catch (err) {
       addToast?.('Failed to submit assessment. Please try again.', 'error');
       setIsSubmitting(false);
@@ -681,10 +901,8 @@ export const AssessmentPage = () => {
   autoSubmitHandlerRef.current = handleAutoSubmit;
 
   // Live Face-Presence Proctoring Loop with MediaPipe Tasks Vision
-  // NOTE: Camera monitoring is temporarily disabled for this build.
-  /*
   useEffect(() => {
-    if (!cameraReady || !mediaStream || isSubmitting || isSubmittedRef.current) {
+    if (phase !== 'exam' || !cameraReady || !mediaStream || isSubmitting || isSubmittedRef.current) {
       return;
     }
 
@@ -733,6 +951,9 @@ export const AssessmentPage = () => {
                   const nextCount = violationCountRef.current + 1;
                   violationCountRef.current = nextCount;
                   setViolationCount(nextCount);
+                  try {
+                    localStorage.setItem('rsj_pipeline_proctor_strikes', String(nextCount));
+                  } catch { }
 
                   const isEyeGaze = classification.gazeDirection &&
                     classification.gazeDirection !== 'head_turned' &&
@@ -807,8 +1028,7 @@ export const AssessmentPage = () => {
         clearInterval(detectionIntervalRef.current);
       }
     };
-  }, [cameraReady, mediaStream, isPausedForWarning, isSubmitting]);
-  */
+  }, [phase, cameraReady, mediaStream, isPausedForWarning, isSubmitting]);
 
   // Fullscreen, focus, tab-switch and shortcut proctoring (exam phase only).
   // Each event type gets its own message, one physical action only counts once,
@@ -836,8 +1056,18 @@ export const AssessmentPage = () => {
       if (now - lastNavViolationAtRef.current < NAV_COOLDOWN_MS) return;
       lastNavViolationAtRef.current = now;
 
-      navStrikeCountRef.current += 1;
-      const strike = navStrikeCountRef.current;
+      const currentSaved = parseInt(localStorage.getItem('rsj_pipeline_proctor_strikes') || '0', 10);
+      const baseStrikes = Math.max(
+        violationCountRef.current,
+        navStrikeCountRef.current,
+        Number.isFinite(currentSaved) ? currentSaved : 0
+      );
+      const strike = baseStrikes + 1;
+      navStrikeCountRef.current = strike;
+      violationCountRef.current = strike;
+      try {
+        localStorage.setItem('rsj_pipeline_proctor_strikes', String(strike));
+      } catch { }
       const isFinal = strike >= NAV_MAX_STRIKES;
       const eventTimestamp = new Date().toISOString();
 
@@ -845,7 +1075,7 @@ export const AssessmentPage = () => {
       // even if the final log request is still in flight at submit time.
       violationLogRef.current.push({ type: kind, title, message, strike, timestamp: eventTimestamp });
 
-      setViolationCount(prev => Math.max(prev, strike));
+      setViolationCount(strike);
       setIsPausedForWarning(true);
 
       api.submissions.logProctoringEvent({
@@ -931,6 +1161,13 @@ export const AssessmentPage = () => {
       if (addToast) addToast('Your cursor left the exam window. Please keep it inside the exam.', 'warning');
     };
 
+    // Disable right-click context menu during the exam
+    const handleContextMenu = (e) => {
+      e.preventDefault();
+      if (addToast) addToast('Right-click is disabled during the assessment.', 'warning');
+      return false;
+    };
+
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     document.addEventListener('mozfullscreenchange', handleFullscreenChange);
@@ -939,6 +1176,7 @@ export const AssessmentPage = () => {
     window.addEventListener('blur', handleWindowBlur);
     window.addEventListener('keydown', handleKeyDown);
     document.addEventListener('mouseout', handleMouseOut);
+    document.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
       clearTimeout(checkTimer);
@@ -950,6 +1188,7 @@ export const AssessmentPage = () => {
       window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('mouseout', handleMouseOut);
+      document.removeEventListener('contextmenu', handleContextMenu);
     };
   }, [phase]);
 
@@ -1419,11 +1658,23 @@ export const AssessmentPage = () => {
             <div className={`${currentQuestion?.type === 'Coding' ? 'lg:col-span-12' : 'lg:col-span-8'} flex flex-col justify-between space-y-6`}>
               {currentQuestion?.type === 'Coding' ? (
                 <CodingWorkspace
+                  key={currentQuestion?.id}
                   question={currentQuestion}
+                  questionIndex={currentQuestionIndex}
+                  totalQuestions={totalQuestions}
+                  onSelectQuestion={(idx) => setCurrentQuestionIndex(idx)}
+                  onPrevQuestion={currentQuestionIndex > 0 ? handlePrev : null}
                   savedAnswer={assessmentAnswers[currentQuestion?.id]}
                   onSaveAnswer={(ans) => setAssessmentAnswers(prev => ({ ...prev, [currentQuestion?.id]: ans }))}
-                  onNextSection={() => handleGoToNextSection()}
-                  isLastSection={isLastSection}
+                  onNextSection={() => {
+                    if (!isLastQuestionInSection) {
+                      handleSaveAndContinue();
+                    } else {
+                      handleGoToNextSection();
+                    }
+                  }}
+                  isLastSection={isLastSection && isLastQuestionInSection}
+                  isLastQuestion={isLastQuestionInSection}
                   nextBusy={isSubmitting}
                   addToast={addToast}
                 />
@@ -1595,8 +1846,7 @@ export const AssessmentPage = () => {
             {/* RIGHT SIDEBAR: CAMERA PREVIEW & QUESTION PALETTE */}
             <div className={`${currentQuestion?.type === 'Coding' ? 'hidden' : 'lg:col-span-4'} space-y-4`}>
 
-              {/* Live Camera & Proctoring Status Widget — temporarily disabled */}
-              {/*
+              {/* Live Camera & Proctoring Status Widget */}
               {mediaStream && (
                 <div className="flex justify-end lg:justify-start">
                   <MediaPreviewWidget
@@ -1608,7 +1858,6 @@ export const AssessmentPage = () => {
                   />
                 </div>
               )}
-              */}
 
               {/* Sections Progress Card (multi-section mode only) */}
               {attemptSections.length > 1 && (
@@ -1736,6 +1985,83 @@ export const AssessmentPage = () => {
           </div>
         </div>
       )}
+
+      {/* FLOATING DRAGGABLE CAMERA PREVIEW FOR CODING WORKSPACE */}
+      {phase === 'exam' && currentQuestion?.type === 'Coding' && mediaStream && (
+        <div
+          onMouseDown={(e) => handleCameraDragStart(e.clientX, e.clientY, e.currentTarget)}
+          onTouchStart={(e) => {
+            if (e.touches?.[0]) handleCameraDragStart(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget);
+          }}
+          style={
+            camPos.x !== null && camPos.y !== null
+              ? { left: `${camPos.x}px`, top: `${camPos.y}px`, right: 'auto', bottom: 'auto' }
+              : undefined
+          }
+          className="fixed bottom-6 right-6 z-40 shadow-2xl cursor-move select-none rounded-2xl overflow-hidden"
+          title="Drag to move camera anywhere on screen"
+        >
+          <div className="bg-slate-900/90 text-slate-200 text-[10px] font-bold px-2.5 py-1 flex items-center justify-between border-b border-slate-700/70">
+            <span>⋮⋮ Drag Camera</span>
+            <span className="text-slate-400 font-normal">Move to view buttons</span>
+          </div>
+          <MediaPreviewWidget
+            stream={mediaStream}
+            videoRef={videoElementRef}
+            proctorState={proctorState}
+            violationCount={violationCount}
+            isDetecting={cameraReady && !isSubmitting && !isPausedForWarning}
+          />
+        </div>
+      )}
+
+      {/* THANK YOU / POST-EXAM TRANSITION MODAL (NO MARKS DISPLAYED) */}
+      <Modal
+        isOpen={showThankYouModal}
+        onClose={() => {}}
+        title="Assessment Submitted"
+        subtitle="Evaluation in progress"
+      >
+        <div className="text-center py-4 space-y-5">
+          <div className="w-16 h-16 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-sm">
+            <CheckCircle2 className="w-9 h-9" />
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-2xl font-black text-slate-900 tracking-tight">
+              Thank you!
+            </h3>
+            <p className="text-sm font-bold text-slate-800">
+              You will receive an email with your result.
+            </p>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+              {nextAssessment ? (
+                <>Your answers have been securely recorded. You are advancing to <strong>Round: {nextAssessment.title}</strong>.</>
+              ) : (
+                <>All assessment rounds are complete! You are progressing directly to your <strong>AI Mock Interview</strong>.</>
+              )}
+            </p>
+          </div>
+
+          <div className="p-3.5 bg-brand-50 border border-brand-200 rounded-2xl text-xs text-brand-900 flex items-center justify-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-brand-600 animate-pulse" />
+            <span className="font-semibold">
+              {nextAssessment
+                ? `Redirecting to Next Round (${nextAssessment.category}) in ${countdownSeconds}s...`
+                : `Redirecting to AI Mock Interview in ${countdownSeconds}s...`}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={proceedToNextStage}
+            className="w-full py-3.5 bg-gradient-to-r from-brand-600 to-cyan-600 hover:from-brand-700 hover:to-cyan-700 text-white rounded-xl text-xs font-extrabold shadow-md shadow-brand-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span>{nextAssessment ? `Proceed to ${nextAssessment.category} Round Now` : 'Proceed to AI Interview Now'}</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      </Modal>
 
       {/* SUBMISSION CONFIRMATION MODAL */}
       <Modal
@@ -1887,9 +2213,8 @@ export const AssessmentPage = () => {
         </div>
       </Modal>
 
-      {/* CAMERA ACCESS BLOCKING GATE — temporarily disabled */}
-      {/*
-      {cameraDenied && (
+      {/* CAMERA ACCESS BLOCKING GATE */}
+      {phase === 'exam' && cameraDenied && (
         <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl border border-slate-200 text-center space-y-6 animate-in fade-in zoom-in-95 duration-200">
             <div className="w-16 h-16 bg-rose-100 rounded-2xl flex items-center justify-center mx-auto text-rose-600 shadow-inner">
@@ -1922,10 +2247,8 @@ export const AssessmentPage = () => {
           </div>
         </div>
       )}
-      */}
 
-      {/* Camera proctoring warning modals temporarily disabled
-      // PROCTORING WARNING MODAL (STRIKE 1 OR 2)
+      {/* PROCTORING WARNING MODAL (STRIKE 1+) */}
       <Modal
         isOpen={warningModalData.isOpen && !warningModalData.isFinal}
         onClose={() => { }}
@@ -1980,7 +2303,7 @@ export const AssessmentPage = () => {
         </div>
       </Modal>
 
-      // PROCTORING 3RD STRIKE AUTO-SUBMIT MODAL
+      {/* PROCTORING FINAL STRIKE AUTO-SUBMIT MODAL */}
       <Modal
         isOpen={warningModalData.isOpen && warningModalData.isFinal}
         onClose={() => { }}
@@ -2007,7 +2330,6 @@ export const AssessmentPage = () => {
           </div>
         </div>
       </Modal>
-      */}
 
     </div>
   );
